@@ -1,0 +1,15 @@
+// Shared robust-statistics helpers for the history module.
+
+export function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[mid - 1] + sorted[mid]) / 2
+    : sorted[mid];
+}
+
+/** Median absolute deviation from a given center. */
+export function medianAbsoluteDeviation(values: number[], center: number): number {
+  return median(values.map((value) => Math.abs(value - center)));
+}

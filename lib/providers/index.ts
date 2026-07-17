@@ -1,18 +1,11 @@
 // Provider registry. Returns the active FlightDataProvider based on the
-// DATA_PROVIDER env var. Only "demo" exists today; "travelpayouts" and
-// others plug in here in later work packages.
+// DATA_PROVIDER env var. "demo" is fully implemented (WP2, lib/providers/
+// demo.ts); "travelpayouts" and other real integrations plug in here later.
 
+import { demoProvider } from './demo';
 import type { FlightDataProvider } from './types';
 
-export const demoProvider: FlightDataProvider = {
-  providerId: 'demo',
-  async search() {
-    throw new Error('not implemented (WP2)');
-  },
-  async healthCheck() {
-    throw new Error('not implemented (WP2)');
-  },
-};
+export { demoProvider };
 
 const providers: Record<string, FlightDataProvider> = {
   demo: demoProvider,

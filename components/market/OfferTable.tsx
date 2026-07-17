@@ -39,7 +39,10 @@ function formatDepartArrive(offer: OfferRowVM): string {
  * called for by the WP5 brief (marketingCarriers > operatingCarriers) can't
  * be rendered from this VM as-is; flagged in the WP5 report as a query-layer
  * gap rather than silently guessed at here. */
-export function OfferTable({ offers }: { offers: OfferRowVM[] }) {
+// nowMs is the dataset anchor (not Date.now()): server render and client
+// hydration must agree on "Xm ago" strings, and every other freshness
+// display in the app is anchored to the dataset, not the wall clock.
+export function OfferTable({ offers, nowMs }: { offers: OfferRowVM[]; nowMs: number }) {
   const [sortKey, setSortKey] = useState<SortKey>('price');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
 
@@ -68,8 +71,13 @@ export function OfferTable({ offers }: { offers: OfferRowVM[] }) {
 
   return (
     <>
-      {/* Desktop / wide layout: real table */}
-      <div className="hidden overflow-x-auto md:block">
+      {/* Desktop / wide layout: real table. data-testid: the price-history
+          "View as table" table also renders a <table> on this page, and the
+          mobile card list below duplicates the same offer fields, so
+          neither role nor text content alone disambiguates which layout is
+          active — tests/e2e/market.spec.ts and mobile.spec.ts target these
+          two wrappers directly. */}
+      <div data-testid="offer-table-desktop" className="hidden overflow-x-auto md:block">
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="border-b border-[var(--border)] text-left text-xs uppercase tracking-wide text-[var(--text-secondary)]">
@@ -123,7 +131,7 @@ export function OfferTable({ offers }: { offers: OfferRowVM[] }) {
                 <td className="py-2 pr-3">{offer.fareBrand ?? 'Not provided'}</td>
                 <td className="num py-2 pr-3">{offer.seatsRemaining ?? 'Not provided'}</td>
                 <td className="num py-2 pr-3 text-[var(--text-tertiary)]" title={formatAbsoluteTime(offer.lastObservedAt)}>
-                  {formatRelativeTime(offer.lastObservedAt)}
+                  {formatRelativeTime(offer.lastObservedAt, nowMs)}
                 </td>
                 <td className="py-2">
                   {offer.outboundUrl ? (
@@ -149,7 +157,7 @@ export function OfferTable({ offers }: { offers: OfferRowVM[] }) {
       </div>
 
       {/* Mobile layout: card list */}
-      <ul className="flex flex-col gap-2 md:hidden">
+      <ul data-testid="offer-table-mobile" className="flex flex-col gap-2 md:hidden">
         {sorted.map((offer, i) => (
           <li key={i} className="rounded-md border border-[var(--border)] bg-[var(--panel-raised)] p-3">
             <div className="flex items-baseline justify-between gap-2">
@@ -183,7 +191,7 @@ export function OfferTable({ offers }: { offers: OfferRowVM[] }) {
               </div>
             </dl>
             <div className="mt-2 flex items-center justify-between text-xs text-[var(--text-tertiary)]">
-              <span title={formatAbsoluteTime(offer.lastObservedAt)}>Observed {formatRelativeTime(offer.lastObservedAt)}</span>
+              <span title={formatAbsoluteTime(offer.lastObservedAt)}>Observed {formatRelativeTime(offer.lastObservedAt, nowMs)}</span>
               {offer.outboundUrl ? (
                 <a href={offer.outboundUrl} target="_blank" rel="noopener noreferrer nofollow" className="text-[var(--accent)] hover:underline">
                   Check availability ↗

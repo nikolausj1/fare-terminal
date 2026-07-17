@@ -94,7 +94,7 @@ export default async function MarketPage({ params, searchParams }: MarketPagePro
           <EventTimeline events={events} />
         </Panel>
         <Panel title="Carriers & itineraries" titleId="offers-title">
-          <OfferTable offers={offers} />
+          <OfferTable offers={offers} nowMs={summary.datasetAnchorAt} />
         </Panel>
       </div>
 

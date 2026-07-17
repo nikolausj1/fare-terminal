@@ -53,3 +53,4 @@ next-env.d.ts
 _inbox/
 _review/
 Project Build Guide.md
+.github/workflows/

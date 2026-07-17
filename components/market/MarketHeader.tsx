@@ -19,8 +19,14 @@ export function MarketHeader({
 
   return (
     <>
-      {/* Sticky compact price header, mobile only. */}
-      <div className="sticky top-0 z-10 -mx-4 flex items-center justify-between border-b border-[var(--border)] bg-[var(--bg)]/95 px-4 py-2 backdrop-blur sm:-mx-6 sm:px-6 md:hidden">
+      {/* Sticky compact price header, mobile only. data-testid: no accessible
+          selector distinguishes this from the <h1> below (same origin/dest
+          text), so tests/e2e/mobile.spec.ts targets it directly. */}
+      <div
+        data-testid="sticky-summary"
+        className="sticky top-0 z-10 -mx-4 flex items-center justify-between border-b border-[var(--border)] bg-[var(--bg)]/95 px-4 py-2 backdrop-blur sm:-mx-6 sm:px-6 md:hidden"
+      >
+
         <span className="num text-sm font-semibold text-[var(--text-primary)]">
           {definition.origin} <span aria-hidden="true">→</span> {definition.destination}
         </span>

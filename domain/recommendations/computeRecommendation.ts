@@ -32,6 +32,12 @@ export interface ComputeRecommendationInput {
 
 const METHODOLOGY_VERSION = 'recommendation-v1';
 
+// Prices flow through this engine in minor units; user-facing fact strings
+// must never leak them raw (e.g. "41700" for $417.00).
+function fmtMoney(minor: number): string {
+  return `$${(minor / 100).toFixed(2)}`;
+}
+
 function clamp(value: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, value));
 }
@@ -187,7 +193,7 @@ export function computeRecommendation(
       summary:
         'There is not enough reliable data yet to make a recommendation for this route.',
       observedFacts: [
-        `Current benchmark is ${currentBenchmark}.`,
+        `Current benchmark is ${fmtMoney(currentBenchmark)}.`,
         `History length: ${historyLength} snapshot(s).`,
         `Freshness: ${freshnessSeconds} seconds.`,
         `Data quality score: ${dataQualityScore.toFixed(2)}.`,
@@ -209,7 +215,7 @@ export function computeRecommendation(
   const label = labelFromScore(score);
   const confidence = confidenceFor(dataQualityScore, historyLength, volatilityPct);
 
-  const observedFacts: string[] = [`Current benchmark is ${currentBenchmark}.`];
+  const observedFacts: string[] = [`Current benchmark is ${fmtMoney(currentBenchmark)}.`];
   if (percentile !== null) {
     observedFacts.push(
       `Cheaper than ${percentile.toFixed(1)}% of observed history.`
@@ -217,7 +223,7 @@ export function computeRecommendation(
   }
   if (fairValue) {
     observedFacts.push(
-      `Fair value range: ${fairValue.low.toFixed(0)}-${fairValue.high.toFixed(0)} (center ${fairValue.center.toFixed(0)}).`
+      `Fair value range: ${fmtMoney(fairValue.low)} to ${fmtMoney(fairValue.high)} (center ${fmtMoney(fairValue.center)}).`
     );
   }
   if (momentum7dPct !== null) {

@@ -162,9 +162,10 @@ describe('validateNote', () => {
 
   it('accepts a note whose numbers are within tolerance of payload numbers', () => {
     const payload = payloadForLabel('BUY');
-    // Payload's currentBenchmark is 25000; restate it with a tiny formatting
-    // difference that should still be within the numeric tolerance.
-    const note = `Current benchmark is 25000. Buy now: this looks like a good time to book. Confidence in this read is ${payload.recommendation.confidence.toLowerCase()}. ${FILLER_FOR_LENGTH}`;
+    // Payload facts state the benchmark as "$250.00"; restate it with a tiny
+    // formatting difference (no trailing cents) that should still be within
+    // the numeric tolerance.
+    const note = `Current benchmark is $250. Buy now: this looks like a good time to book. Confidence in this read is ${payload.recommendation.confidence.toLowerCase()}. ${FILLER_FOR_LENGTH}`;
     const result = validateNote(note, payload);
     expect(result.violations.filter((v) => v.includes('not traceable'))).toEqual([]);
   });

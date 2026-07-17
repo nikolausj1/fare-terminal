@@ -351,8 +351,11 @@ function rangeToMs(range: HistoryRange): number | null {
 }
 
 /** Returns compatible-methodology snapshot points within `range`, with
- * gapAfter set when the next point is more than 2x the series' median
- * inter-snapshot interval away. */
+ * gapAfter set when the next point is more than 2x the series' 90th-
+ * percentile inter-snapshot interval away. The p90 (not median) matters on
+ * mixed cadences: dense intraday sampling in recent days drags the median
+ * down to hours, which would falsely mark every ordinary daily step in the
+ * older history as a gap and shatter the chart line into isolated dots. */
 export function getMarketHistory(defIdOrSlug: number | string, range: HistoryRange): HistoryPointVM[] {
   const def = resolveDefinitionByIdOrSlug(defIdOrSlug);
   if (!def) return [];
@@ -370,16 +373,14 @@ export function getMarketHistory(defIdOrSlug: number | string, range: HistoryRan
     intervals.push(inRange[i].snapshotAt - inRange[i - 1].snapshotAt);
   }
   const sortedIntervals = [...intervals].sort((a, b) => a - b);
-  const medianInterval =
+  const p90Interval =
     sortedIntervals.length === 0
       ? 0
-      : sortedIntervals.length % 2 === 0
-        ? (sortedIntervals[sortedIntervals.length / 2 - 1] + sortedIntervals[sortedIntervals.length / 2]) / 2
-        : sortedIntervals[(sortedIntervals.length - 1) / 2];
+      : sortedIntervals[Math.min(sortedIntervals.length - 1, Math.floor(sortedIntervals.length * 0.9))];
 
   return inRange.map((s, i) => {
     const next = inRange[i + 1];
-    const gapAfter = medianInterval > 0 && !!next && next.snapshotAt - s.snapshotAt > 2 * medianInterval;
+    const gapAfter = p90Interval > 0 && !!next && next.snapshotAt - s.snapshotAt > 2 * p90Interval;
     return {
       snapshotAt: s.snapshotAt,
       benchmarkPriceMinor: s.benchmarkPriceMinor,

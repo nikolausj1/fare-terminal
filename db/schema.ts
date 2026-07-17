@@ -204,6 +204,7 @@ export const recommendations = sqliteTable('recommendations', {
     enum: ['LOW', 'MODERATE', 'HIGH'],
   }).notNull(),
   score: real('score').notNull(),
+  summary: text('summary').notNull().default(''),
   observedFactsJson: text('observed_facts_json', { mode: 'json' })
     .$type<string[]>()
     .notNull(),

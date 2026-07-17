@@ -148,6 +148,11 @@ export async function deriveAnalystNotes(searchDefinitionId?: number): Promise<D
       ? 'valid'
       : `invalid: ${finalValidation.violations.join('; ')}`;
 
+    // Replace, don't append (same idempotency rule as recommendations).
+    db.delete(analystNotes)
+      .where(eq(analystNotes.marketSnapshotId, snapshotRow.id))
+      .run();
+
     db.insert(analystNotes)
       .values({
         searchDefinitionId: def.id,

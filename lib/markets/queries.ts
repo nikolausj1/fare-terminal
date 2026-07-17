@@ -226,7 +226,7 @@ function rowToRecommendationOutput(row: typeof recommendationsTable.$inferSelect
     label: row.label,
     confidence: row.confidence,
     score: row.score,
-    summary: '',
+    summary: row.summary,
     observedFacts: row.observedFactsJson,
     inferences: row.inferencesJson,
     counterEvidence: row.counterevidenceJson,

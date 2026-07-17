@@ -141,7 +141,7 @@ function confidenceFor(
 const LABEL_PHRASE: Record<RecommendationLabel, string> = {
   BUY: 'this looks like a good time to buy',
   LEAN_BUY: 'this leans toward buying soon',
-  NEUTRAL: "prices are in a normal range, so there's no strong signal either way",
+  NEUTRAL: "the signals balance out, so there's no strong case to buy or wait",
   WAIT: 'this suggests waiting for a better price',
   INSUFFICIENT_DATA: "there isn't enough data yet for a confident recommendation",
 };
@@ -275,8 +275,34 @@ export function computeRecommendation(
     limitations.push('Fair value range is unavailable (insufficient history).');
   }
 
+  // Situation-aware summary: name the dominant drivers rather than a
+  // generic per-label phrase, so a NEUTRAL produced by a historically cheap
+  // fare offset by falling momentum reads as "mixed signals", not "prices
+  // are normal".
+  const drivers: string[] = [];
+  if (dimHistorical >= 2) {
+    drivers.push('the fare is near the cheap end of its comparable history');
+  } else if (dimHistorical === 1) {
+    drivers.push('the fare is cheaper than usual');
+  } else if (dimHistorical === -1) {
+    drivers.push('the fare is more expensive than usual');
+  } else if (dimHistorical <= -2) {
+    drivers.push('the fare is near the expensive end of its comparable history');
+  }
+  if (dimMomentum <= -0.3) drivers.push('prices have been falling recently');
+  else if (dimMomentum >= 0.3) drivers.push('prices have been rising recently');
+  if (dimVolatility <= -0.5) drivers.push('volatility is elevated');
+  if (dimSupply >= 0.3) drivers.push('the pool of qualifying offers is shrinking');
+  else if (dimSupply <= -0.3) drivers.push('more qualifying offers are appearing');
+
   const phrase = LABEL_PHRASE[label];
-  const summary = `${phrase[0].toUpperCase()}${phrase.slice(1)}, with ${confidence.toLowerCase()} confidence.`;
+  const driverSentence =
+    drivers.length > 0
+      ? `${drivers[0][0].toUpperCase()}${drivers[0].slice(1)}${
+          drivers.length > 1 ? `, and ${drivers.slice(1).join(', and ')}` : ''
+        }. `
+      : '';
+  const summary = `${driverSentence}${phrase[0].toUpperCase()}${phrase.slice(1)}, with ${confidence.toLowerCase()} confidence.`;
 
   return {
     label,

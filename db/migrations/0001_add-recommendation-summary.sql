@@ -1,0 +1,1 @@
+ALTER TABLE `recommendations` ADD `summary` text DEFAULT '' NOT NULL;

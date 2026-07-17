@@ -8,7 +8,7 @@
 import { asc, eq } from 'drizzle-orm';
 
 import { db } from '@/db';
-import { marketSnapshots, recommendations, searchDefinitions } from '@/db/schema';
+import { analystNotes, marketSnapshots, recommendations, searchDefinitions } from '@/db/schema';
 import { config } from '@/domain/config';
 import { fairValueRange, filterCompatibleSnapshots, historicalPercentile, volatility } from '@/domain/history';
 import { computeRecommendation, type ComputeRecommendationInput } from '@/domain/recommendations';
@@ -118,11 +118,23 @@ export function deriveRecommendations(searchDefinitionId?: number): DeriveRecomm
 
     const output = computeRecommendation(input);
 
+    // Replace, don't append: re-running the pipeline for the same latest
+    // snapshot must not accumulate duplicate recommendation rows. Dependent
+    // analyst_notes reference these rows, so they go first (the notes job
+    // re-creates them right after this job in the pipeline).
+    db.delete(analystNotes)
+      .where(eq(analystNotes.marketSnapshotId, current.id))
+      .run();
+    db.delete(recommendations)
+      .where(eq(recommendations.marketSnapshotId, current.id))
+      .run();
+
     db.insert(recommendations)
       .values({
         searchDefinitionId: def.id,
         marketSnapshotId: current.id,
         label: output.label,
+        summary: output.summary,
         confidence: output.confidence,
         score: output.score,
         observedFactsJson: output.observedFacts,

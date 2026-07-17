@@ -10,8 +10,11 @@ import type { RecommendationLabel } from '@/domain/types';
 export const ACTION_PHRASE: Record<RecommendationLabel, string> = {
   BUY: 'Buy now: this looks like a good time to book.',
   LEAN_BUY: 'Lean toward buying soon rather than waiting.',
+  // "Signals balance out" (not "prices are normal"): NEUTRAL also covers
+  // markets where a very cheap fare is offset by falling momentum or high
+  // volatility — the price itself may be far from normal.
   NEUTRAL:
-    'Hold steady: prices are in a normal range, so there is no strong signal either way.',
+    'Hold steady: the signals balance out, so there is no strong signal either way.',
   WAIT: 'Wait if you can: prices may improve, so holding off looks reasonable for now.',
   INSUFFICIENT_DATA:
     'Hold off on a recommendation: there is not yet enough data to call this with confidence.',

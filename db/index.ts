@@ -27,8 +27,13 @@ export function resolveDatabasePath(): string {
 
 /** True when the DB connection should be opened read-only: on Vercel
  * (VERCEL=1, set automatically by the platform) or when DB_READONLY=1 is
- * set explicitly (useful for local testing of the read-only code paths). */
+ * set explicitly (useful for local testing of the read-only code paths).
+ *
+ * DB_FORCE_WRITABLE=1 overrides both: Vercel sets VERCEL=1 during the
+ * BUILD as well, where scripts/build.mjs must create and seed the very
+ * file that the runtime later opens read-only. */
 export function isDatabaseReadonly(): boolean {
+  if (process.env.DB_FORCE_WRITABLE === '1') return false;
   return process.env.VERCEL === '1' || process.env.DB_READONLY === '1';
 }
 

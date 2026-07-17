@@ -22,9 +22,13 @@ const databasePath = process.env.DATABASE_PATH ?? './data/fare-terminal.db';
 const forceReseed = process.env.SEED_ON_BUILD === '1';
 const dbMissing = !existsSync(databasePath);
 
-function run(command, args) {
+function run(command, args, extraEnv = {}) {
   console.log(`[build] $ ${command} ${args.join(' ')}`);
-  const result = spawnSync(command, args, { stdio: 'inherit', shell: process.platform === 'win32' });
+  const result = spawnSync(command, args, {
+    stdio: 'inherit',
+    shell: process.platform === 'win32',
+    env: { ...process.env, ...extraEnv },
+  });
   if (result.status !== 0) {
     process.exit(result.status ?? 1);
   }
@@ -34,9 +38,13 @@ if (dbMissing || forceReseed) {
   console.log(
     `[build] ${dbMissing ? `no DB file at ${databasePath}` : 'SEED_ON_BUILD=1'} — running db:setup + seed + pipeline before next build.`
   );
-  run('npm', ['run', 'db:setup']);
-  run('npm', ['run', 'seed']);
-  run('npm', ['run', 'pipeline']);
+  // Vercel sets VERCEL=1 during the build too, which would make db/index.ts
+  // open the (not-yet-existing) DB read-only. These three steps are the ones
+  // that CREATE it, so they get an explicit writable override.
+  const writable = { DB_FORCE_WRITABLE: '1' };
+  run('npm', ['run', 'db:setup'], writable);
+  run('npm', ['run', 'seed'], writable);
+  run('npm', ['run', 'pipeline'], writable);
 } else {
   console.log(`[build] DB file present at ${databasePath} and SEED_ON_BUILD is not set — skipping seed/pipeline.`);
 }

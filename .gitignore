@@ -32,6 +32,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -39,3 +40,16 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# sqlite data
+/data/
+
+# test artifacts
+/test-results/
+/playwright-report/
+
+# repo-local scratch (present if these ever land inside the app dir;
+# today they live one level up, outside this repo, per WP1 spec)
+_inbox/
+_review/
+Project Build Guide.md

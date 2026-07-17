@@ -198,8 +198,13 @@ function detectOfferCountChange(input: DetectEventsInput): DetectedEvent[] {
   const { current, previous } = input;
   if (!previous || previous.validOfferCount === 0) return [];
 
-  const { offerCountSurgePct, offerCountContractionPct } = config.eventThresholds;
+  const { offerCountSurgePct, offerCountContractionPct, offerCountChangeAbsMin } =
+    config.eventThresholds;
   const change = pctChange(previous.validOfferCount, current.validOfferCount);
+  const absChange = Math.abs(current.validOfferCount - previous.validOfferCount);
+
+  // Percentage thresholds alone are noise on small offer sets.
+  if (absChange < offerCountChangeAbsMin) return [];
 
   if (change >= offerCountSurgePct) {
     const severity = severityFromRatio(change / offerCountSurgePct);
@@ -238,9 +243,22 @@ function detectLowFareSetChanged(input: DetectEventsInput): DetectedEvent[] {
 
   if (replaced.length < config.eventThresholds.lowFareSetChangeCount) return [];
 
+  // Churn without a price consequence is background noise, not an event.
+  const benchmarkMovePct = pctChange(
+    previous.benchmarkPriceMinor,
+    current.benchmarkPriceMinor
+  );
+  if (
+    Math.abs(benchmarkMovePct) <
+    config.eventThresholds.lowFareSetMinBenchmarkMovePct
+  ) {
+    return [];
+  }
+
   const severity = replaced.length >= n - 1 ? 'HIGH' : 'MEDIUM';
   const facts = [
     `${replaced.length} of the ${n} lowest-price itineraries changed since the prior snapshot.`,
+    `The benchmark moved ${benchmarkMovePct.toFixed(1)}% over the same interval.`,
   ];
 
   return [baseEvent(input, 'LOW_FARE_SET_CHANGED', severity, 'MODERATE', facts)];
@@ -258,8 +276,28 @@ function detectCarrierLowSetChanges(input: DetectEventsInput): DetectedEvent[] {
   const currentCarriers = new Set(currentLow.map((o) => o.validatingCarrier));
   const previousCarriers = new Set(previousLow.map((o) => o.validatingCarrier));
 
-  const entered = [...currentCarriers].filter((c) => !previousCarriers.has(c));
-  const left = [...previousCarriers].filter((c) => !currentCarriers.has(c));
+  // Only price-competitive membership changes are events. A carrier
+  // drifting in or out of slot #5 is churn; a carrier arriving at (or
+  // abandoning) the cheap end of the market is a story.
+  const proximity =
+    1 + config.eventThresholds.carrierSetFromPriceProximityPct / 100;
+  const cheapestFor = (offers: NormalizedOffer[], carrier: string): number =>
+    Math.min(
+      ...offers
+        .filter((o) => o.validatingCarrier === carrier)
+        .map((o) => o.totalPriceMinor)
+    );
+
+  const entered = [...currentCarriers].filter(
+    (c) =>
+      !previousCarriers.has(c) &&
+      cheapestFor(currentLow, c) <= current.fromPriceMinor * proximity
+  );
+  const left = [...previousCarriers].filter(
+    (c) =>
+      !currentCarriers.has(c) &&
+      cheapestFor(previousLow, c) <= previous.fromPriceMinor * proximity
+  );
 
   const events: DetectedEvent[] = [];
 
@@ -313,7 +351,7 @@ function detectPossibleCarrierMatch(input: DetectEventsInput): DetectedEvent[] {
 
   const currentCheapest = cheapestByCarrier(currentOffers, current.snapshotAt);
   const previousCheapest = cheapestByCarrier(previousOffers, previous.snapshotAt);
-  const threshold = config.eventThresholds.priceDropPct / 2;
+  const threshold = config.eventThresholds.carrierMatchMinMovePct;
 
   const movers: { carrier: string; change: number }[] = [];
   for (const [carrier, prevPrice] of previousCheapest.entries()) {
@@ -367,15 +405,37 @@ function detectFareProductChanges(input: DetectEventsInput): DetectedEvent[] {
   const previousLow = lowSet(previousOffers, previous.snapshotAt, n);
   if (currentLow.length === 0 || previousLow.length === 0) return [];
 
-  const currentBrands = new Set(
-    currentLow.map((o) => o.fareBrand).filter((b): b is string => !!b)
+  // PRD wording is "lowest fare product disappeared/reappeared". The
+  // cheapest offers hop between brands constantly, so low-set membership
+  // is noise. The real story is a brand vanishing from (or returning to)
+  // the ENTIRE observed offer set — e.g. "Basic is no longer sold on this
+  // route" — evaluated over all valid offers, and only for the brand that
+  // holds (or held) the cheapest branded price.
+  const validCurrent = currentOffers.filter((o) => isValidAt(o, current.snapshotAt));
+  const validPrevious = previousOffers.filter((o) =>
+    isValidAt(o, previous.snapshotAt)
   );
-  const previousBrands = new Set(
-    previousLow.map((o) => o.fareBrand).filter((b): b is string => !!b)
-  );
+  const brandsOf = (offers: NormalizedOffer[]) =>
+    new Set(offers.map((o) => o.fareBrand).filter((b): b is string => !!b));
+  const currentBrands = brandsOf(validCurrent);
+  const previousBrands = brandsOf(validPrevious);
 
-  const appeared = [...currentBrands].filter((b) => !previousBrands.has(b));
-  const disappeared = [...previousBrands].filter((b) => !currentBrands.has(b));
+  const cheapestBrand = (offers: NormalizedOffer[]): string | null => {
+    const branded = offers.filter((o) => !!o.fareBrand);
+    if (branded.length === 0) return null;
+    return branded.reduce((min, o) =>
+      o.totalPriceMinor < min.totalPriceMinor ? o : min
+    ).fareBrand!;
+  };
+  const currentCheapestBrand = cheapestBrand(validCurrent);
+  const previousCheapestBrand = cheapestBrand(validPrevious);
+
+  const appeared = [...currentBrands].filter(
+    (b) => !previousBrands.has(b) && b === currentCheapestBrand
+  );
+  const disappeared = [...previousBrands].filter(
+    (b) => !currentBrands.has(b) && b === previousCheapestBrand
+  );
 
   const events: DetectedEvent[] = [];
   if (appeared.length > 0) {
@@ -386,7 +446,7 @@ function detectFareProductChanges(input: DetectEventsInput): DetectedEvent[] {
         appeared.length >= 2 ? 'MEDIUM' : 'LOW',
         'MODERATE',
         [
-          `Fare product(s) ${appeared.join(', ')} newly appeared among the ${n} lowest-price offers.`,
+          `Fare product(s) ${appeared.join(', ')} newly appeared in the observed offer set and now hold the cheapest branded fare.`,
         ]
       )
     );
@@ -399,7 +459,7 @@ function detectFareProductChanges(input: DetectEventsInput): DetectedEvent[] {
         disappeared.length >= 2 ? 'MEDIUM' : 'LOW',
         'MODERATE',
         [
-          `Fare product(s) ${disappeared.join(', ')} are no longer among the ${n} lowest-price offers.`,
+          `Fare product(s) ${disappeared.join(', ')} disappeared from the observed offer set (previously the cheapest branded fare).`,
         ]
       )
     );

@@ -1,0 +1,52 @@
+{
+  "success": true,
+  "currency": "usd",
+  "data": [
+    {
+      "origin": "SEA",
+      "destination": "FCO",
+      "price": 455.5,
+      "airline": "LH",
+      "flight_number": 490,
+      "departure_at": "2026-09-01T11:20:00Z",
+      "return_at": "2026-09-09T16:40:00Z",
+      "transfers": 1,
+      "return_transfers": 1,
+      "link": "/searches/SEA0109FCO0909LH1",
+      "note": "duration intentionally omitted for this fixture item"
+    },
+    {
+      "origin": "SEA",
+      "destination": "FCO",
+      "price": "not-a-number",
+      "airline": "BA",
+      "flight_number": 117,
+      "departure_at": "2026-09-05T10:00:00Z",
+      "duration": 900
+    },
+    {
+      "destination": "FCO",
+      "price": 410,
+      "airline": "IB",
+      "flight_number": 6251,
+      "departure_at": "2026-09-06T08:30:00Z",
+      "duration": 860
+    },
+    {
+      "origin": "SEA",
+      "destination": "FCO",
+      "price": 470,
+      "departure_at": "2026-09-07T09:00:00Z",
+      "duration": 900
+    },
+    {
+      "origin": "SEA",
+      "destination": "FCO",
+      "price": 522,
+      "airline": "AZ",
+      "departure_at": "2026-09-08T13:10:00Z",
+      "duration": 1030,
+      "transfers": 0
+    }
+  ]
+}

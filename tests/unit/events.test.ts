@@ -156,36 +156,36 @@ describe('detectEvents: VOLATILITY_SPIKE', () => {
 
 describe('detectEvents: OFFER_COUNT_SURGE / CONTRACTION', () => {
   it('fires OFFER_COUNT_SURGE when the increase meets the threshold', () => {
-    const previous = snapshot({ validOfferCount: 10, snapshotAt: NOW - DAY_MS });
-    const current = snapshot({ validOfferCount: 14 }); // +40%
+    const previous = snapshot({ validOfferCount: 20, snapshotAt: NOW - DAY_MS });
+    const current = snapshot({ validOfferCount: 28 }); // +40%, +8 abs
     const events = detectEvents(baseInput({ current, previous }));
     expect(events.some((e) => e.eventType === 'OFFER_COUNT_SURGE')).toBe(true);
   });
 
   it('does NOT fire just below the surge threshold', () => {
-    const previous = snapshot({ validOfferCount: 10, snapshotAt: NOW - DAY_MS });
-    const current = snapshot({ validOfferCount: 13 }); // +30%
+    const previous = snapshot({ validOfferCount: 30, snapshotAt: NOW - DAY_MS });
+    const current = snapshot({ validOfferCount: 39 }); // +30% (abs 9, but below pct threshold)
     const events = detectEvents(baseInput({ current, previous }));
     expect(events.some((e) => e.eventType === 'OFFER_COUNT_SURGE')).toBe(false);
   });
 
   it('fires OFFER_COUNT_CONTRACTION when the decrease meets the threshold', () => {
-    const previous = snapshot({ validOfferCount: 10, snapshotAt: NOW - DAY_MS });
-    const current = snapshot({ validOfferCount: 6 }); // -40%
+    const previous = snapshot({ validOfferCount: 20, snapshotAt: NOW - DAY_MS });
+    const current = snapshot({ validOfferCount: 12 }); // -40%, -8 abs
     const events = detectEvents(baseInput({ current, previous }));
     expect(events.some((e) => e.eventType === 'OFFER_COUNT_CONTRACTION')).toBe(true);
   });
 
   it('does NOT fire just below the contraction threshold', () => {
-    const previous = snapshot({ validOfferCount: 10, snapshotAt: NOW - DAY_MS });
-    const current = snapshot({ validOfferCount: 7 }); // -30%
+    const previous = snapshot({ validOfferCount: 30, snapshotAt: NOW - DAY_MS });
+    const current = snapshot({ validOfferCount: 21 }); // -30% (abs 9, but below pct threshold)
     const events = detectEvents(baseInput({ current, previous }));
     expect(events.some((e) => e.eventType === 'OFFER_COUNT_CONTRACTION')).toBe(false);
   });
 });
 
 describe('detectEvents: LOW_FARE_SET_CHANGED', () => {
-  it('fires when >= 3 of the 5 lowest-price itineraries are replaced', () => {
+  it('fires when >= 4 of the 5 lowest are replaced AND the benchmark moved', () => {
     const previousOffers = Array.from({ length: 5 }, (_, i) =>
       makeOffer({
         providerOfferId: `prev-${i}`,
@@ -194,24 +194,52 @@ describe('detectEvents: LOW_FARE_SET_CHANGED', () => {
         segments: [makeSegment({ operatingFlightNumber: `AA${100 + i}` })],
       })
     );
-    // Replace 3 of the 5 with different itineraries at similarly low prices.
+    // Replace 4 of the 5 with different itineraries at lower prices.
     const currentOffers = [
-      ...previousOffers.slice(0, 2),
-      ...Array.from({ length: 3 }, (_, i) =>
+      ...previousOffers.slice(0, 1),
+      ...Array.from({ length: 4 }, (_, i) =>
         makeOffer({
           providerOfferId: `cur-${i}`,
-          totalPriceMinor: 10000 + i * 100,
+          totalPriceMinor: 9500 + i * 100,
           observedAt: NOW,
           segments: [makeSegment({ operatingFlightNumber: `BB${200 + i}` })],
         })
       ),
     ];
-    const previous = snapshot({ snapshotAt: NOW - DAY_MS });
-    const current = snapshot({});
+    // Benchmark moved -5% between snapshots (clears the 4% materiality gate).
+    const previous = snapshot({ snapshotAt: NOW - DAY_MS, benchmarkPriceMinor: 10200 });
+    const current = snapshot({ benchmarkPriceMinor: 9690 });
     const events = detectEvents(
       baseInput({ current, previous, currentOffers, previousOffers })
     );
     expect(events.some((e) => e.eventType === 'LOW_FARE_SET_CHANGED')).toBe(true);
+  });
+
+  it('does NOT fire on set churn without a benchmark move', () => {
+    const previousOffers = Array.from({ length: 5 }, (_, i) =>
+      makeOffer({
+        providerOfferId: `prev-${i}`,
+        totalPriceMinor: 10000 + i * 100,
+        observedAt: NOW - DAY_MS,
+        segments: [makeSegment({ operatingFlightNumber: `AA${100 + i}` })],
+      })
+    );
+    // All 5 itineraries replaced, but at essentially identical prices.
+    const currentOffers = Array.from({ length: 5 }, (_, i) =>
+      makeOffer({
+        providerOfferId: `cur-${i}`,
+        totalPriceMinor: 10000 + i * 100,
+        observedAt: NOW,
+        segments: [makeSegment({ operatingFlightNumber: `BB${200 + i}` })],
+      })
+    );
+    // Benchmark essentially flat (0.5% move, below the 1.5% gate).
+    const previous = snapshot({ snapshotAt: NOW - DAY_MS, benchmarkPriceMinor: 10200 });
+    const current = snapshot({ benchmarkPriceMinor: 10251 });
+    const events = detectEvents(
+      baseInput({ current, previous, currentOffers, previousOffers })
+    );
+    expect(events.some((e) => e.eventType === 'LOW_FARE_SET_CHANGED')).toBe(false);
   });
 
   it('does NOT fire when only 2 of the 5 lowest change', () => {
@@ -273,14 +301,14 @@ describe('detectEvents: CARRIER_ENTERED_LOW_SET / CARRIER_LEFT_LOW_SET', () => {
 
 describe('detectEvents: POSSIBLE_CARRIER_MATCH', () => {
   it('fires with "consistent with" wording and LOW/MODERATE confidence when two carriers move together within the window', () => {
-    const dropPct = config.eventThresholds.priceDropPct; // 8
+    const minMove = config.eventThresholds.carrierMatchMinMovePct; // 8
     const previousOffers = [
       ...offersAtCarrier('AA', 10000, 1, 'p'),
       ...offersAtCarrier('BB', 12000, 1, 'p'),
     ];
     const currentOffers = [
-      ...offersAtCarrier('AA', Math.round(10000 * (1 - dropPct / 200 - 0.02)), 1, 'c'),
-      ...offersAtCarrier('BB', Math.round(12000 * (1 - dropPct / 200 - 0.02)), 1, 'c'),
+      ...offersAtCarrier('AA', Math.round(10000 * (1 - (minMove + 1) / 100)), 1, 'c'),
+      ...offersAtCarrier('BB', Math.round(12000 * (1 - (minMove + 1) / 100)), 1, 'c'),
     ];
     const previous = snapshot({ snapshotAt: NOW - 2 * 60 * 60 * 1000 }); // 2h before
     const current = snapshot({});

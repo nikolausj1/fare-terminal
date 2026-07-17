@@ -1,0 +1,36 @@
+{
+  "success": true,
+  "currency": "usd",
+  "data": {
+    "2026-09-01": {
+      "origin": "JFK",
+      "destination": "LAX",
+      "price": 187,
+      "airline": "AA",
+      "flight_number": 1450,
+      "transfers": 0,
+      "depart_date": "2026-09-01",
+      "return_date": "2026-09-08",
+      "expires_at": "2026-08-25T02:00:00Z"
+    },
+    "2026-09-02": {
+      "origin": "JFK",
+      "destination": "LAX",
+      "price": 199.99,
+      "airline": "B6",
+      "flight_number": "622",
+      "transfers": 0,
+      "depart_date": "2026-09-02",
+      "note": "no expires_at on this entry"
+    },
+    "2026-09-03": {
+      "origin": "JFK",
+      "destination": "LAX",
+      "price": 0,
+      "airline": "UA",
+      "flight_number": 815,
+      "transfers": 1,
+      "depart_date": "2026-09-03"
+    }
+  }
+}

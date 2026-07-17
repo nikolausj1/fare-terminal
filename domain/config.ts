@@ -61,8 +61,34 @@ export const config = {
     carrierMatchWindowHours: 6,
     // Added by WP3:
     offerCountContractionPct: 40,
-    // "3 of 5" lowest-price itineraries replaced by fingerprint.
-    lowFareSetChangeCount: 3,
+    // "4 of 5" lowest-price itineraries replaced by fingerprint. Set-churn
+    // between adjacent snapshots is constant background noise; an event is
+    // only a story when most of the set turns over AND the benchmark
+    // actually moved (see lowFareSetMinBenchmarkMovePct).
+    lowFareSetChangeCount: 4,
+    // LOW_FARE_SET_CHANGED also requires the benchmark to have moved at
+    // least this % between the two snapshots. In a FLEXIBLE-window series
+    // the cheapest itineraries legitimately hop across departure dates
+    // between observations, so set turnover alone is background noise; it
+    // becomes a story only when the price level moved with it.
+    lowFareSetMinBenchmarkMovePct: 4,
+    // CARRIER_ENTERED_LOW_SET only fires when the entering carrier is at
+    // (or within this % of) the from price — i.e. it now sets or nearly
+    // sets the market floor. CARRIER_LEFT_LOW_SET mirrors this for the
+    // carrier that previously held the floor.
+    carrierSetFromPriceProximityPct: 1,
+    // Minimum same-direction move of each carrier's cheapest fare for
+    // POSSIBLE_CARRIER_MATCH. Intraday noise regularly produces smaller
+    // coincidental pairs; 8% keeps only deliberate-looking moves.
+    carrierMatchMinMovePct: 8,
+    // OFFER_COUNT_SURGE/CONTRACTION need this absolute offer-count change
+    // in addition to the % threshold — on small sets (12-35 offers) the
+    // percentage alone is noise.
+    offerCountChangeAbsMin: 8,
+    // Same-type events within this window coalesce into one episode: the
+    // stored event's end time extends instead of a new row being created.
+    // A severity escalation breaks through the cooldown as a new event.
+    eventCooldownHours: 24,
     dataAnomalyQualityThreshold: 0.3,
   },
 
@@ -108,6 +134,23 @@ export const config = {
       moderateMinHistory: 15,
       moderateMaxVolatilityPct: 25,
     },
+  },
+
+  // Market-pulse card gates (PRD §13.3): a definition's latest snapshot must
+  // clear all of these before it can appear in a "biggest drops" /
+  // "newly favorable" pulse card, on top of the freshness
+  // (config.freshness.staleAfterMinutes) and methodology-version
+  // (config.benchmark.methodologyVersion) checks already enforced
+  // elsewhere. Added by WP4 (lib/markets/queries.ts#getMarketPulse).
+  pulse: {
+    // Minimum dataQualityScore for a snapshot to be pulse-eligible at all.
+    minDataQualityScore: 0.5,
+    // Minimum |pct24h| move for a card to qualify as a "biggest drop" /
+    // "unusual" price move.
+    minMoveAbsPct: 5,
+    // Cap on cards rendered per pulse section (drops / newly favorable /
+    // unusual events).
+    maxCardsPerSection: 5,
   },
 } as const;
 

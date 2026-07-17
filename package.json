@@ -4,12 +4,15 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/build.mjs",
+    "build:next": "next build",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "db:setup": "tsx db/migrate.ts",
     "seed": "tsx db/seed/index.ts",
+    "pipeline": "tsx jobs/pipeline.ts",
+    "ingest": "tsx jobs/ingest.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test"

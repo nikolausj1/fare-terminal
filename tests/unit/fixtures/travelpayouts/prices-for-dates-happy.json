@@ -1,0 +1,47 @@
+{
+  "success": true,
+  "currency": "usd",
+  "data": [
+    {
+      "origin": "SEA",
+      "destination": "FCO",
+      "origin_airport": "SEA",
+      "destination_airport": "FCO",
+      "price": 512.4,
+      "airline": "TK",
+      "flight_number": 1978,
+      "departure_at": "2026-08-10T09:35:00Z",
+      "return_at": "2026-08-18T14:20:00Z",
+      "transfers": 1,
+      "return_transfers": 1,
+      "duration": 1420,
+      "link": "/searches/SEA1008FCO1808TK1"
+    },
+    {
+      "origin": "SEA",
+      "destination": "FCO",
+      "price": 601.0,
+      "airline": "DL",
+      "flight_number": "202",
+      "departure_at": "2026-08-11T07:15:00Z",
+      "return_at": "2026-08-19T21:05:00Z",
+      "transfers": 0,
+      "return_transfers": 0,
+      "duration": 1180,
+      "link": "/searches/SEA1108FCO1908DL1",
+      "meal_service": "included",
+      "baggage": { "checked": 1 }
+    },
+    {
+      "origin": "SEA",
+      "destination": "FCO",
+      "price": 389,
+      "airline": "AF",
+      "flight_number": 6789,
+      "departure_at": "2026-08-12T18:00:00Z",
+      "transfers": 1,
+      "duration": 780,
+      "link": "/searches/SEA1208FCO0"
+    }
+  ]
+}

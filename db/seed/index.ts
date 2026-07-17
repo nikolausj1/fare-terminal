@@ -6,11 +6,26 @@
 // search_runs, and offer_observations built from db/seed/generate.ts.
 //
 // Does NOT populate market_snapshots / market_events / recommendations /
-// analyst_notes — those are derived by a later pipeline job (WP3+), but
-// their tables are still cleared here for idempotency since they carry FKs
-// into the tables this script rebuilds.
+// analyst_notes — those are derived by the pipeline job (WP4, `npm run
+// pipeline` / jobs/pipeline.ts#runFullPipeline), but their tables are still
+// cleared here for idempotency since they carry FKs into the tables this
+// script rebuilds.
+//
+// Fingerprint reconciliation (WP4): db/seed/generate.ts exports its own
+// itineraryFingerprint(offer) (a different signature/algorithm than the
+// canonical domain/normalization/fingerprint.ts#itineraryFingerprint(segments)),
+// used only by insertHistoryForDefinition() below. Every DB-stored
+// itinerary_fingerprint must come from the canonical domain function (it's
+// the one downstream consumers — computeSnapshotMetrics, detectEvents —
+// call to compare itineraries across snapshots), so this file imports and
+// uses ONLY the canonical one; db/seed/generate.ts's own
+// itineraryFingerprint is left untouched (WP4 may not edit that file) and
+// is simply unused outside of it now.
+
+import { fileURLToPath } from 'node:url';
 
 import { config } from '@/domain/config';
+import { itineraryFingerprint } from '@/domain/normalization';
 import { getNow } from '@/lib/demo-time';
 
 import { db, resolveDatabasePath, sqlite } from '../index';
@@ -26,13 +41,8 @@ import {
   searchDefinitions,
   searchRuns,
 } from '../schema';
-import {
-  generateMarketHistory,
-  itineraryFingerprint,
-  resolveExactQuery,
-  resolveFlexibleQuery,
-} from './generate';
-import { AIRPORTS, MARKETS, type MarketSpec } from './markets';
+import { generateMarketHistory, resolveExactQuery, resolveFlexibleQuery } from './generate';
+import { AIRPORTS, MARKETS, MARKETS_BY_ID, type MarketSpec } from './markets';
 
 const CHUNK_SIZE = 500;
 
@@ -102,11 +112,15 @@ interface DefinitionRecord {
   slug: string;
 }
 
-function insertDefinitions(scopeIds: Map<string, number>, now: number): DefinitionRecord[] {
+function insertDefinitions(
+  scopeIds: Map<string, number>,
+  now: number,
+  markets: readonly MarketSpec[] = MARKETS
+): DefinitionRecord[] {
   const definitions: DefinitionRecord[] = [];
   const createdAt = now;
 
-  for (const market of MARKETS) {
+  for (const market of markets) {
     const originScopeId = scopeIds.get(market.origin);
     const destScopeId = scopeIds.get(market.destination);
     if (!originScopeId || !destScopeId) {
@@ -212,7 +226,9 @@ function insertHistoryForDefinition(def: DefinitionRecord, now: number): SeedTot
         searchDefinitionId: def.id,
         providerId: offer.providerId,
         providerOfferId: offer.providerOfferId,
-        itineraryFingerprint: itineraryFingerprint(offer),
+        // Canonical domain fingerprint — see the reconciliation note at the
+        // top of this file.
+        itineraryFingerprint: itineraryFingerprint(offer.segments),
         observedAt: offer.observedAt,
         expiresAt: offer.expiresAt ?? null,
         currency: offer.currency,
@@ -247,28 +263,87 @@ function insertHistoryForDefinition(def: DefinitionRecord, now: number): SeedTot
   return { runs: history.length, observations, minObservedAt, maxObservedAt };
 }
 
+interface SeedCoreResult {
+  airportCount: number;
+  scopeCount: number;
+  definitions: DefinitionRecord[];
+  defTotals: { slug: string; runs: number; observations: number }[];
+  totalRuns: number;
+  totalObservations: number;
+  overallMin: number;
+  overallMax: number;
+}
+
+/** Shared core of the seed process: wipe + insert airports/scopes/
+ * definitions/history for exactly `markets`. Used both by `npm run seed`
+ * (all MARKETS) and by seedMarkets() below (a curated subset, for fast
+ * integration tests). */
+function seedCore(markets: readonly MarketSpec[], now: number): SeedCoreResult {
+  wipe();
+
+  const airportIds = insertAirports();
+  const scopeIds = insertScopes(airportIds);
+  const definitions = insertDefinitions(scopeIds, now, markets);
+
+  const defTotals: { slug: string; runs: number; observations: number }[] = [];
+  let totalRuns = 0;
+  let totalObservations = 0;
+  let overallMin = Number.POSITIVE_INFINITY;
+  let overallMax = Number.NEGATIVE_INFINITY;
+
+  for (const def of definitions) {
+    const totals = insertHistoryForDefinition(def, now);
+    defTotals.push({ slug: def.slug, runs: totals.runs, observations: totals.observations });
+    totalRuns += totals.runs;
+    totalObservations += totals.observations;
+    if (totals.minObservedAt < overallMin) overallMin = totals.minObservedAt;
+    if (totals.maxObservedAt > overallMax) overallMax = totals.maxObservedAt;
+  }
+
+  return {
+    airportCount: airportIds.size,
+    scopeCount: scopeIds.size,
+    definitions,
+    defTotals,
+    totalRuns,
+    totalObservations,
+    overallMin,
+    overallMax,
+  };
+}
+
+/**
+ * Seeds a curated subset of MARKETS (by id, e.g. ['jfk-lhr', 'bos-dub']) at
+ * a caller-supplied "now", for fast integration tests that don't want to
+ * pay for all 12+ demo markets' full history. Airports and market_scopes
+ * are still seeded for every AIRPORTS entry (cheap — ~20 rows — and some
+ * generated itineraries connect through hub airports outside the requested
+ * markets), but search_definitions/search_runs/offer_observations are only
+ * built for the requested markets. Does NOT close the sqlite handle (unlike
+ * `main()`'s CLI path) so the caller can keep using `db` afterward.
+ */
+export function seedMarkets(marketIds: string[], now: number) {
+  const markets = marketIds.map((id) => {
+    const market = MARKETS_BY_ID.get(id);
+    if (!market) {
+      throw new Error(`seedMarkets: unknown market id "${id}"`);
+    }
+    return market;
+  });
+
+  const result = seedCore(markets, now);
+  return {
+    definitions: result.definitions,
+    totalRuns: result.totalRuns,
+    totalObservations: result.totalObservations,
+  };
+}
+
 function main() {
   const start = Date.now();
   const now = getNow();
   console.log(`Seeding database at ${resolveDatabasePath()}`);
   console.log(`Demo "now" anchor: ${new Date(now).toISOString()}`);
-
-  wipe();
-  console.log('Wiped existing rows (airports, market_scopes, search_definitions, search_runs, offer_observations, and downstream tables).');
-
-  const airportIds = insertAirports();
-  console.log(`Inserted ${airportIds.size} airports.`);
-
-  const scopeIds = insertScopes(airportIds);
-  console.log(`Inserted ${scopeIds.size} AIRPORT market_scopes.`);
-
-  const definitions = insertDefinitions(scopeIds, now);
-  console.log(`Inserted ${definitions.length} search_definitions (${MARKETS.length} markets).`);
-
-  let totalRuns = 0;
-  let totalObservations = 0;
-  let overallMin = Number.POSITIVE_INFINITY;
-  let overallMax = Number.NEGATIVE_INFINITY;
 
   console.log('\nMarket -> scenario:');
   for (const market of MARKETS) {
@@ -276,31 +351,43 @@ function main() {
   }
   console.log('');
 
-  for (const def of definitions) {
-    const totals = insertHistoryForDefinition(def, now);
-    totalRuns += totals.runs;
-    totalObservations += totals.observations;
-    if (totals.minObservedAt < overallMin) overallMin = totals.minObservedAt;
-    if (totals.maxObservedAt > overallMax) overallMax = totals.maxObservedAt;
-    console.log(
-      `  [${def.slug}] ${totals.runs} runs, ${totals.observations} offer_observations`
-    );
+  const result = seedCore(MARKETS, now);
+
+  console.log('Wiped existing rows (airports, market_scopes, search_definitions, search_runs, offer_observations, and downstream tables).');
+  console.log(`Inserted ${result.airportCount} airports.`);
+  console.log(`Inserted ${result.scopeCount} AIRPORT market_scopes.`);
+  console.log(`Inserted ${result.definitions.length} search_definitions (${MARKETS.length} markets).`);
+  for (const dt of result.defTotals) {
+    console.log(`  [${dt.slug}] ${dt.runs} runs, ${dt.observations} offer_observations`);
   }
 
   console.log('\nRow counts:');
-  console.log(`  airports:            ${airportIds.size}`);
-  console.log(`  market_scopes:       ${scopeIds.size}`);
-  console.log(`  search_definitions:  ${definitions.length}`);
-  console.log(`  search_runs:         ${totalRuns}`);
-  console.log(`  offer_observations:  ${totalObservations}`);
+  console.log(`  airports:            ${result.airportCount}`);
+  console.log(`  market_scopes:       ${result.scopeCount}`);
+  console.log(`  search_definitions:  ${result.definitions.length}`);
+  console.log(`  search_runs:         ${result.totalRuns}`);
+  console.log(`  offer_observations:  ${result.totalObservations}`);
   console.log(
-    `\nDate range covered: ${new Date(overallMin).toISOString()} .. ${new Date(overallMax).toISOString()}`
+    `\nDate range covered: ${new Date(result.overallMin).toISOString()} .. ${new Date(result.overallMax).toISOString()}`
   );
 
   const elapsedMs = Date.now() - start;
   console.log(`\nSeed complete in ${elapsedMs}ms.`);
+  console.log(
+    '\nNext: run `npm run pipeline` to derive market_snapshots, market_events, recommendations, and analyst_notes from this data.'
+  );
 
   sqlite.close();
 }
 
-main();
+function isMainModule(): boolean {
+  try {
+    return process.argv[1] === fileURLToPath(import.meta.url);
+  } catch {
+    return false;
+  }
+}
+
+if (isMainModule()) {
+  main();
+}

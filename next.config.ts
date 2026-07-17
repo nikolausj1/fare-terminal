@@ -9,8 +9,10 @@ const nextConfig: NextConfig = {
   // include it for every route under /api/**, where lib/markets/queries.ts
   // and the derivation jobs open the DB via db/index.ts (DATABASE_PATH,
   // default ./data/fare-terminal.db).
+  // Keys are route globs; '/**' covers server-rendered pages (home, market
+  // pages) as well as API routes — all of them read the DB at request time.
   outputFileTracingIncludes: {
-    "/api/*": ["./data/fare-terminal.db"],
+    "/**": ["./data/fare-terminal.db"],
     "/api/**": ["./data/fare-terminal.db"],
   },
 };

@@ -45,7 +45,11 @@ if (dbMissing || forceReseed) {
   run('npm', ['run', 'db:setup'], writable);
   run('npm', ['run', 'seed'], writable);
   run('npm', ['run', 'pipeline'], writable);
-} else {
+}
+
+// Always finalize: a WAL-mode SQLite file cannot be opened on Vercel's
+// read-only filesystem (SQLITE_CANTOPEN creating -wal/-shm sidecars).
+run('node', ['scripts/finalize-db.mjs'], { DB_FORCE_WRITABLE: '1' }); else {
   console.log(`[build] DB file present at ${databasePath} and SEED_ON_BUILD is not set — skipping seed/pipeline.`);
 }
 

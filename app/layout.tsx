@@ -4,6 +4,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { DemoBanner } from "@/components/ui/DemoBanner";
 import { NavBar } from "@/components/layout/NavBar";
 import { Footer } from "@/components/layout/Footer";
+import { getDataSourceMode } from "@/lib/markets/queries";
 
 import "./globals.css";
 
@@ -39,6 +40,13 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // DB-derived, not env-derived — see lib/markets/queries.ts#getDataSourceMode
+  // and components/ui/DemoBanner.tsx. Memoized per request via React's
+  // cache(), so any page below that also calls getMarketSummary/getMarketPulse
+  // (which each call getDataSourceMode() internally) reuses this same query
+  // result rather than re-running the SELECT DISTINCT.
+  const dataSourceMode = getDataSourceMode();
+
   return (
     <html
       lang="en"
@@ -48,12 +56,12 @@ export default function RootLayout({
         <a href="#main-content" className="skip-link">
           Skip to content
         </a>
-        <DemoBanner />
+        <DemoBanner mode={dataSourceMode} />
         <NavBar />
         <main id="main-content" className="flex-1">
           {children}
         </main>
-        <Footer />
+        <Footer mode={dataSourceMode} />
       </body>
     </html>
   );

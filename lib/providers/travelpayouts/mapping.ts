@@ -18,6 +18,23 @@ export const QUALITY_FLAG_AGGREGATED_CACHED_SOURCE = 'AGGREGATED_CACHED_SOURCE';
 export const QUALITY_FLAG_SYNTHETIC_SEGMENTS = 'SYNTHETIC_SEGMENTS';
 export const QUALITY_FLAG_ESTIMATED_DURATION = 'ESTIMATED_DURATION';
 export const QUALITY_FLAG_ESTIMATED_LEG_SPLIT = 'ESTIMATED_LEG_SPLIT';
+// Real prices_for_dates/calendar responses report `origin`/`destination` as
+// CITY codes (e.g. NYC, LON) — which can cover several airports — while
+// `origin_airport`/`destination_airport` carry the actual airport IATA code
+// actually flown. Confirmed against live responses 2026-07-24; not covered
+// by the original hand-written fixtures. This adapter always prefers the
+// *_airport fields; when they're absent it falls back to the city code and
+// flags the offer so downstream consumers know the segment's origin/
+// destination may be less precise than a real airport code (e.g. could be
+// any of several airports serving that city).
+export const QUALITY_FLAG_CITY_CODE_FALLBACK = 'CITY_CODE_FALLBACK';
+// Added when an offer was recovered via the /v1/prices/calendar fallback
+// path (lib/providers/travelpayouts/index.ts#searchFlexible) rather than
+// the primary /aviasales/v3/prices_for_dates call — see the comment there
+// for why this fallback exists (real-world round-trip month-granularity
+// queries against prices_for_dates are frequently empty for routes that DO
+// have real cached data via the calendar endpoint).
+export const QUALITY_FLAG_CALENDAR_FALLBACK_SOURCE = 'CALENDAR_FALLBACK_SOURCE';
 
 export interface MappingResult {
   offers: NormalizedOffer[];
@@ -57,12 +74,21 @@ const pricesForDatesResponseSchema = z.object({
 const calendarItemSchema = z.object({
   origin: z.string().optional(),
   destination: z.string().optional(),
+  origin_airport: z.string().optional(),
+  destination_airport: z.string().optional(),
   price: z.union([z.number(), z.string()]).optional(),
   airline: z.string().optional(),
   flight_number: z.union([z.string(), z.number()]).optional(),
   transfers: z.number().optional(),
+  // Real /v1/prices/calendar responses observed 2026-07-24 use
+  // `departure_at`/`return_at` (matching prices_for_dates), NOT
+  // `depart_date`/`return_date` as older TravelPayouts docs/examples show.
+  // Both spellings are accepted; departure_at/return_at win when both are
+  // present (see resolveCalendarDates below).
   depart_date: z.string().optional(),
   return_date: z.string().optional(),
+  departure_at: z.string().optional(),
+  return_at: z.string().optional(),
   expires_at: z.string().optional(),
 });
 
@@ -94,6 +120,17 @@ function toFlightNumber(value: string | number | undefined): string | undefined 
   return str.length > 0 ? str : undefined;
 }
 
+/** Prefers the airport-code field; falls back to the (coarser) city code
+ * when the airport field is absent. See QUALITY_FLAG_CITY_CODE_FALLBACK. */
+function resolveAirportCode(
+  cityCode: string | undefined,
+  airportCode: string | undefined
+): { code: string | undefined; usedCityFallback: boolean } {
+  if (airportCode) return { code: airportCode, usedCityFallback: false };
+  if (cityCode) return { code: cityCode, usedCityFallback: true };
+  return { code: undefined, usedCityFallback: false };
+}
+
 function computeProviderOfferId(parts: Array<string | number>): string {
   const hash = createHash('sha1');
   hash.update(parts.join('|'));
@@ -117,6 +154,13 @@ interface BuildOfferParams {
   query: NormalizedSearchQuery;
   retrievedAt: number;
   expiresAtMs?: number;
+  /** True when origin and/or destination came from the coarser city-code
+   * field rather than a per-airport field — see QUALITY_FLAG_CITY_CODE_FALLBACK. */
+  usedCityCodeFallback?: boolean;
+  /** True when this offer was recovered via the /v1/prices/calendar fallback
+   * path rather than the primary prices_for_dates call — see
+   * QUALITY_FLAG_CALENDAR_FALLBACK_SOURCE. */
+  fromCalendarFallback?: boolean;
 }
 
 /**
@@ -149,6 +193,15 @@ function buildOffer(params: BuildOfferParams): { offer: NormalizedOffer; warning
   const returnMs = hasReturnLeg ? (returnMsRaw as number) : undefined;
 
   const qualityFlags = [QUALITY_FLAG_AGGREGATED_CACHED_SOURCE, QUALITY_FLAG_SYNTHETIC_SEGMENTS];
+  if (params.usedCityCodeFallback) {
+    qualityFlags.push(QUALITY_FLAG_CITY_CODE_FALLBACK);
+    warnings.push(
+      `${params.origin}-${params.destination} on ${params.departureAt}: origin_airport/destination_airport missing from source, used city code(s) as a lower-precision fallback.`
+    );
+  }
+  if (params.fromCalendarFallback) {
+    qualityFlags.push(QUALITY_FLAG_CALENDAR_FALLBACK_SOURCE);
+  }
 
   let outboundDurationMin: number;
   let inboundDurationMin: number | undefined;
@@ -265,15 +318,21 @@ export function mapPricesForDates(
   const warnings: string[] = [];
 
   items.forEach((item, index) => {
-    const origin = item.origin;
-    const destination = item.destination;
+    // origin/destination are CITY codes (e.g. NYC, LON) — they can cover
+    // several airports. origin_airport/destination_airport carry the actual
+    // airport actually flown and are preferred whenever present; see
+    // QUALITY_FLAG_CITY_CODE_FALLBACK.
+    const originResolved = resolveAirportCode(item.origin, item.origin_airport);
+    const destResolved = resolveAirportCode(item.destination, item.destination_airport);
+    const origin = originResolved.code;
+    const destination = destResolved.code;
     const price = toPrice(item.price);
     const airline = item.airline;
     const departureAt = item.departure_at;
 
     const missing: string[] = [];
-    if (!origin) missing.push('origin');
-    if (!destination) missing.push('destination');
+    if (!origin) missing.push('origin/origin_airport');
+    if (!destination) missing.push('destination/destination_airport');
     if (price === undefined || price <= 0) missing.push('price');
     if (!airline) missing.push('airline');
     if (!departureAt || Number.isNaN(Date.parse(departureAt))) missing.push('departure_at');
@@ -303,6 +362,7 @@ export function mapPricesForDates(
       observedAtSourceKey: retrievedAt,
       query,
       retrievedAt,
+      usedCityCodeFallback: originResolved.usedCityFallback || destResolved.usedCityFallback,
     });
 
     offers.push(offer);
@@ -318,10 +378,19 @@ export function mapPricesForDates(
 
 // --- /v1/prices/calendar ----------------------------------------------
 
+export interface MapCalendarOptions {
+  /** Set when this call is being used as the searchFlexible fallback path
+   * (an empty prices_for_dates month re-queried against /v1/prices/calendar)
+   * rather than the dedicated healthCheck() call — tags every resulting
+   * offer with QUALITY_FLAG_CALENDAR_FALLBACK_SOURCE. */
+  fromCalendarFallback?: boolean;
+}
+
 export function mapCalendar(
   json: unknown,
   query: NormalizedSearchQuery,
-  retrievedAt: number
+  retrievedAt: number,
+  options: MapCalendarOptions = {}
 ): MappingResult {
   const parsed = calendarResponseSchema.safeParse(json);
   if (!parsed.success) {
@@ -338,16 +407,32 @@ export function mapCalendar(
   const warnings: string[] = [];
 
   entries.forEach(([dateKey, item]) => {
-    const origin = item.origin ?? query.origin;
-    const destination = item.destination ?? query.destination;
+    // Same city-code-vs-airport-code distinction as prices_for_dates (see
+    // mapPricesForDates above), though live calendar responses observed so
+    // far haven't included the *_airport fields at all — falling back to
+    // query.origin/query.destination (the airport codes the search itself
+    // was made for) when even the city-code fields are absent, since that's
+    // still more precise than leaving the offer unmapped.
+    const originResolved = resolveAirportCode(item.origin ?? query.origin, item.origin_airport);
+    const destResolved = resolveAirportCode(item.destination ?? query.destination, item.destination_airport);
+    const origin = originResolved.code;
+    const destination = destResolved.code;
     const price = toPrice(item.price);
     const airline = item.airline;
-    const departureAt = item.depart_date ?? dateKey;
+    // Real /v1/prices/calendar responses observed 2026-07-24 use
+    // departure_at/return_at (matching prices_for_dates); depart_date/
+    // return_date are accepted too in case older API versions/docs are
+    // right for some accounts. The dateKey (the response's own object key)
+    // is the final fallback for departure date — it's always a valid date.
+    const departureAt = item.departure_at ?? item.depart_date ?? dateKey;
+    const returnAt = item.return_at ?? item.return_date;
 
     const missing: string[] = [];
+    if (!origin) missing.push('origin/origin_airport');
+    if (!destination) missing.push('destination/destination_airport');
     if (price === undefined || price <= 0) missing.push('price');
     if (!airline) missing.push('airline');
-    if (!departureAt || Number.isNaN(Date.parse(departureAt))) missing.push('depart_date');
+    if (!departureAt || Number.isNaN(Date.parse(departureAt))) missing.push('departure_at/depart_date');
 
     if (missing.length > 0) {
       warnings.push(`calendar[${dateKey}]: skipped, missing/invalid field(s): ${missing.join(', ')}.`);
@@ -369,13 +454,15 @@ export function mapCalendar(
       flightNumber,
       priceMajor: price as number,
       departureAt: departureAt as string,
-      returnAt: item.return_date,
+      returnAt,
       transfers: item.transfers ?? 0,
       link: undefined,
       observedAtSourceKey: item.expires_at ?? retrievedAt,
       query,
       retrievedAt,
       expiresAtMs: validExpiresAtMs,
+      usedCityCodeFallback: originResolved.usedCityFallback || destResolved.usedCityFallback,
+      fromCalendarFallback: options.fromCalendarFallback,
     });
 
     offers.push(offer);

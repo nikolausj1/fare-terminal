@@ -9,9 +9,17 @@
 // real wall clock would mark everything stale within hours of the last
 // seed/pipeline run. Instead, freshness here is computed relative to
 // getDatasetAnchor() — the newest observed_at across all offer_observations
-// — and every VM that exposes freshness also exposes demoMode: true and the
-// anchor itself, so the UI can label it honestly as demo freshness rather
-// than implying a live feed.
+// — and every VM that exposes freshness also exposes dataSourceMode (plus
+// the legacy demoMode boolean alias) and the anchor itself, so the UI can
+// label it honestly (demo freshness vs. cached-aggregated freshness) rather
+// than implying a live feed either way.
+//
+// dataSourceMode (WP-C): derived from DISTINCT search_runs.provider_id via
+// getDataSourceMode() below — NEVER from process.env.DATA_PROVIDER. The env
+// var only says how the ingestion pipeline was configured; the DB's actual
+// contents are the only honest source for what kind of data is being shown.
+
+import { cache } from 'react';
 
 import { and, asc, desc, eq, max } from 'drizzle-orm';
 
@@ -38,10 +46,12 @@ import type {
   TripType,
 } from '@/domain/types';
 
+import { deriveDataSourceMode } from './dataSourceMode';
 import { loadOfferRowsForSearchRunIds } from './offers';
 import { nearestByTime, pctChange } from './snapshotUtils';
 import {
   EVENT_TYPE_LABELS,
+  type DataSourceMode,
   type HistoryPointVM,
   type MarketCardVM,
   type MarketEventVM,
@@ -59,9 +69,20 @@ function carrierName(code: string): string {
   return CARRIER_NAME_BY_CODE.get(code) ?? code;
 }
 
-function isDemoMode(): boolean {
-  return (process.env.DATA_PROVIDER ?? 'demo') === 'demo';
-}
+/**
+ * The DB-derived data source mode (see DataSourceMode in view-models.ts),
+ * computed from DISTINCT search_runs.provider_id — deliberately NOT from
+ * process.env.DATA_PROVIDER, which only says how the pipeline was
+ * configured, not what actually landed in this DB file. One cheap
+ * SELECT DISTINCT, memoized per server request via React's `cache()` (this
+ * module is server-only — every caller is a server component or an
+ * app/api/** route handler) so pages that call it multiple times (layout +
+ * page + pulse) don't repeat the query within a single render pass.
+ */
+export const getDataSourceMode = cache((): DataSourceMode => {
+  const rows = db.selectDistinct({ providerId: searchRuns.providerId }).from(searchRuns).all();
+  return deriveDataSourceMode(rows.map((r) => r.providerId));
+});
 
 type SearchDefinitionRow = typeof searchDefinitions.$inferSelect;
 type MarketSnapshotRow = typeof marketSnapshots.$inferSelect;
@@ -299,6 +320,7 @@ export function getMarketSummary(
 
   const anchor = getDatasetAnchor();
   const ageSeconds = Math.max(0, Math.round((anchor - current.snapshotAt) / 1000));
+  const dataSourceMode = getDataSourceMode();
 
   return {
     definition: {
@@ -326,7 +348,8 @@ export function getMarketSummary(
       isStale: ageSeconds > config.freshness.staleAfterMinutes * 60,
     },
     dataQuality: current.dataQualityScore,
-    demoMode: isDemoMode(),
+    dataSourceMode,
+    demoMode: dataSourceMode === 'DEMO',
     datasetAnchorAt: anchor,
   };
 }
@@ -493,6 +516,7 @@ export function getCurrentOffers(defIdOrSlug: number | string): OfferRowVM[] {
       seatsRemaining: r.seatsRemaining ?? null,
       lastObservedAt: r.observedAt,
       outboundUrl: r.outboundUrl ?? null,
+      qualityFlags: r.qualityFlags,
     };
   });
 }
@@ -669,13 +693,16 @@ export function getMarketPulse(): PulseVM {
 
   const briefText = `Tracking ${defs.length} market${defs.length === 1 ? '' : 's'}. ${biggestDrops.length} price drop${biggestDrops.length === 1 ? '' : 's'} of ${moveGate}%+ in the last 24h. ${newlyFavorable.length} market${newlyFavorable.length === 1 ? '' : 's'} newly look${newlyFavorable.length === 1 ? 's' : ''} favorable. ${unusualEvents.length} unusual signal${unusualEvents.length === 1 ? '' : 's'} detected in the last 48h.`;
 
+  const dataSourceMode = getDataSourceMode();
+
   return {
     brief: { text: briefText, generatedAt: anchor, mode: 'TEMPLATE' },
     biggestDrops,
     newlyFavorable,
     unusualEvents,
     freshness: { datasetAnchorAt: anchor, generatedAt: Date.now() },
-    demoMode: isDemoMode(),
+    dataSourceMode,
+    demoMode: dataSourceMode === 'DEMO',
   };
 }
 

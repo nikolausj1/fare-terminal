@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 
 import { formatAbsoluteTime, formatDurationMinutes, formatPriceMinor, formatRelativeTime } from '@/lib/format';
-import type { OfferRowVM } from '@/lib/markets/view-models';
+import { ESTIMATED_TIMING_QUALITY_FLAGS, type DataSourceMode, type OfferRowVM } from '@/lib/markets/view-models';
 
 type SortKey = 'price' | 'duration' | 'stops';
 type SortDir = 'asc' | 'desc';
@@ -14,10 +14,39 @@ const COLUMNS: { key: SortKey; label: string }[] = [
   { key: 'duration', label: 'Duration' },
 ];
 
+const ESTIMATED_TIMING_TITLE =
+  'Estimated: this provider does not return verified per-leg segment times. Depart/arrive/duration are reconstructed from aggregate data, not a real itinerary.';
+
 function sortValue(offer: OfferRowVM, key: SortKey): number {
   if (key === 'price') return offer.priceMinor;
   if (key === 'duration') return offer.durationMinutes;
   return offer.stops;
+}
+
+/** True when any of offer.qualityFlags mark depart/arrive/duration as
+ * reconstructed/estimated rather than a verified itinerary — see
+ * ESTIMATED_TIMING_QUALITY_FLAGS in lib/markets/view-models.ts and
+ * docs/PROVIDERS.md's "What data this actually is" section. Exported (pure,
+ * no DOM) for tests/unit/offerTable.test.ts. */
+export function hasEstimatedTiming(offer: OfferRowVM): boolean {
+  return offer.qualityFlags.some((flag) =>
+    (ESTIMATED_TIMING_QUALITY_FLAGS as readonly string[]).includes(flag)
+  );
+}
+
+/** Small inline marker for estimated depart/arrive/duration values. Color
+ * is never the only signal — the "est." text itself carries the meaning,
+ * and the title attribute (+ desktop's tooltip) spells out why. */
+function EstimatedMarker() {
+  return (
+    <span
+      className="ml-1 cursor-help text-[10px] font-semibold uppercase tracking-wide text-[var(--warn)]"
+      title={ESTIMATED_TIMING_TITLE}
+      aria-label="Estimated, not a verified itinerary"
+    >
+      est.
+    </span>
+  );
 }
 
 function formatDepartArrive(offer: OfferRowVM): string {
@@ -42,9 +71,24 @@ function formatDepartArrive(offer: OfferRowVM): string {
 // nowMs is the dataset anchor (not Date.now()): server render and client
 // hydration must agree on "Xm ago" strings, and every other freshness
 // display in the app is anchored to the dataset, not the wall clock.
-export function OfferTable({ offers, nowMs }: { offers: OfferRowVM[]; nowMs: number }) {
+//
+// dataSourceMode (WP-C, defaults to 'DEMO' for callers that predate this
+// prop): only affects the no-outbound-link copy — in AGGREGATED_CACHED mode
+// a missing link just means no affiliate marker was configured, not "not
+// available because this is a demo."
+export function OfferTable({
+  offers,
+  nowMs,
+  dataSourceMode = 'DEMO',
+}: {
+  offers: OfferRowVM[];
+  nowMs: number;
+  dataSourceMode?: DataSourceMode;
+}) {
   const [sortKey, setSortKey] = useState<SortKey>('price');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const isDemo = dataSourceMode === 'DEMO';
+  const noLinkLabel = isDemo ? 'Not available in demo' : 'No outbound link available';
 
   const sorted = useMemo(() => {
     const copy = [...offers];
@@ -126,8 +170,14 @@ export function OfferTable({ offers, nowMs }: { offers: OfferRowVM[]; nowMs: num
                 </td>
                 <td className="num py-2 pr-3 font-semibold">{formatPriceMinor(offer.priceMinor, offer.currency)}</td>
                 <td className="num py-2 pr-3">{offer.stops === 0 ? 'Nonstop' : offer.stops}</td>
-                <td className="num py-2 pr-3">{formatDurationMinutes(offer.durationMinutes)}</td>
-                <td className="num py-2 pr-3">{formatDepartArrive(offer)}</td>
+                <td className="num py-2 pr-3">
+                  {formatDurationMinutes(offer.durationMinutes)}
+                  {hasEstimatedTiming(offer) && <EstimatedMarker />}
+                </td>
+                <td className="num py-2 pr-3">
+                  {formatDepartArrive(offer)}
+                  {hasEstimatedTiming(offer) && <EstimatedMarker />}
+                </td>
                 <td className="py-2 pr-3">{offer.fareBrand ?? 'Not provided'}</td>
                 <td className="num py-2 pr-3">{offer.seatsRemaining ?? 'Not provided'}</td>
                 <td className="num py-2 pr-3 text-[var(--text-tertiary)]" title={formatAbsoluteTime(offer.lastObservedAt)}>
@@ -145,7 +195,7 @@ export function OfferTable({ offers, nowMs }: { offers: OfferRowVM[]; nowMs: num
                       ↗
                     </a>
                   ) : (
-                    <span className="text-[var(--text-tertiary)]" aria-label="Not available in demo">
+                    <span className="text-[var(--text-tertiary)]" aria-label={noLinkLabel}>
                       —
                     </span>
                   )}
@@ -175,11 +225,17 @@ export function OfferTable({ offers, nowMs }: { offers: OfferRowVM[]; nowMs: num
               </div>
               <div className="flex justify-between">
                 <dt>Duration</dt>
-                <dd className="num">{formatDurationMinutes(offer.durationMinutes)}</dd>
+                <dd className="num">
+                  {formatDurationMinutes(offer.durationMinutes)}
+                  {hasEstimatedTiming(offer) && <EstimatedMarker />}
+                </dd>
               </div>
               <div className="col-span-2 flex justify-between">
                 <dt>Depart–Arrive</dt>
-                <dd className="num">{formatDepartArrive(offer)}</dd>
+                <dd className="num">
+                  {formatDepartArrive(offer)}
+                  {hasEstimatedTiming(offer) && <EstimatedMarker />}
+                </dd>
               </div>
               <div className="flex justify-between">
                 <dt>Fare brand</dt>
@@ -197,7 +253,7 @@ export function OfferTable({ offers, nowMs }: { offers: OfferRowVM[]; nowMs: num
                   Check availability ↗
                 </a>
               ) : (
-                <span>Not available in demo</span>
+                <span>{noLinkLabel}</span>
               )}
             </div>
           </li>

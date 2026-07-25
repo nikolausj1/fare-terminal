@@ -68,11 +68,125 @@ time.
    how aggressively you can poll — see PROVIDERS.md's "Ingestion cadence
    recommendation" for sizing guidance against the ~14-market seed catalog.
 
-There is currently no scheduled/cron ingestion configured in this repo —
-`npm run pipeline` (or `npm run ingest`) needs to be triggered externally
-(a cron job, a Vercel Cron/GitHub Actions schedule, etc.) for a
-`travelpayouts` deployment to stay current. Wiring that up is a deployment
-concern outside this codebase.
+Scheduled ingestion **is** configured — see "Real data operations" below
+for the GitHub Action that keeps a dedicated real-data database current.
+
+## Real data operations
+
+This section covers the real-data database (`data/real.db`), which is
+kept entirely separate from the synthetic demo database
+(`data/fare-terminal.db`) — see `scripts/bootstrap-real.ts`'s module
+docstring for why the two must never share a file.
+
+### The three commands
+
+Run in this order, always with `DATABASE_PATH=data/real.db` so nothing
+touches the demo DB:
+
+```bash
+DATABASE_PATH=data/real.db DATA_PROVIDER=travelpayouts npm run bootstrap:real
+DATABASE_PATH=data/real.db DATA_PROVIDER=travelpayouts npm run ingest
+DATABASE_PATH=data/real.db DATA_PROVIDER=travelpayouts npm run pipeline
+```
+
+- **`bootstrap:real`** — idempotent. Creates/migrates `data/real.db` and
+  upserts airports/market_scopes/search_definitions for the tracked
+  roster. Never inserts observations; safe to re-run any time (e.g. after
+  editing the roster) without losing history. Deactivates any definition
+  no longer in the roster so `ingest` stops spending budget on it.
+- **`ingest`** — one sweep: calls the live TravelPayouts provider for
+  every active search definition and persists whatever real offers come
+  back.
+- **`pipeline`** — derives snapshots -> events -> recommendations ->
+  analyst notes from whatever observations exist so far.
+
+### The roster
+
+The tracked markets live in `REAL_MARKETS` in
+`scripts/bootstrap-real.ts` — currently 10 markets, chosen by *measured*
+Aviasales cache coverage rather than the demo's scenario needs (the
+cached Data API is dense on international trunk routes and thin-to-empty
+on many US domestic/secondary routes). Each entry's comment records the
+probed offer count at the time it was added.
+
+**Coverage-probe method** — before adding a candidate route to the
+roster, confirm TravelPayouts actually has cached data for it with a
+direct `curl` call (never print the token or marker themselves — pull
+them from `.env` into a shell variable first so they never appear in your
+terminal history/scrollback as literal text):
+
+```bash
+source <(grep -E '^TRAVELPAYOUTS_TOKEN=' .env)
+curl -s -H "x-access-token: $TRAVELPAYOUTS_TOKEN" \
+  "https://api.travelpayouts.com/aviasales/v3/prices_for_dates?origin=JFK&destination=LHR&departure_at=2026-09&one_way=false&currency=usd" \
+  | head -c 2000
+```
+
+Swap `origin`/`destination`/`departure_at` for the candidate route and a
+near-term month. A `"success": true` response with a non-empty `"data"`
+array means the route has cache coverage; an empty array (or several
+empty months in a row) means skip it — see `docs/PROVIDERS.md`'s
+"Real-world response notes" section for how sparse this cache is on
+non-marquee routes. Unset the shell variable (`unset TRAVELPAYOUTS_TOKEN`)
+when you're done probing.
+
+### The Action
+
+`.github/workflows/real-data-refresh.yml` runs the three commands above
+on a **6-hour cron** (plus `workflow_dispatch` for a manual run), using
+the `TRAVELPAYOUTS_TOKEN`/`TRAVELPAYOUTS_MARKER` repo secrets, then
+commits `data/real.db` back to `main` **only if it changed**
+(`git diff --staged --quiet` guard) with message
+`chore: refresh real airfare data [skip ci]`. A `concurrency` group
+ensures overlapping runs queue rather than race each other against the
+same DB file.
+
+**This file cannot be pushed from this machine yet** — the local `gh`
+token lacks the `workflow` scope required to push anything under
+`.github/workflows/`, and that same line is currently in `.gitignore` as
+a result. See the cutover checklist below for the unlock steps.
+
+Because `data/*` is gitignored with an explicit `!data/real.db`
+exception (see `.gitignore`), the Action's commit doesn't need any
+special force-push machinery — `real.db` is trackable like any other
+file; the demo DB and both DBs' `-wal`/`-shm` sidecars stay ignored.
+Nothing about this repo auto-stages `data/real.db` outside that Action —
+the lead decides when the first real DB lands in git.
+
+### Production cutover checklist
+
+1. **Unlock the workflow push scope**: `gh auth refresh -h github.com -s workflow`,
+   then remove the `.github/workflows/` line from `.gitignore`, commit,
+   and push `real-data-refresh.yml` (and `ci.yml`) to `main`. Confirm
+   `TRAVELPAYOUTS_TOKEN`/`TRAVELPAYOUTS_MARKER` are present under repo
+   Settings -> Secrets and variables -> Actions (already set, per WP-D).
+2. **Let history accumulate**: leave the Action running on its 6-hour
+   cron for **2-3 days** before flipping production over. Recommendations
+   require `minHistoryForRecommendation` (`domain/config.ts`) = **10
+   snapshots** per market before they activate (`INSUFFICIENT_DATA`
+   otherwise) — at one snapshot per 6-hour run, that's ~60 hours (2.5
+   days) of unattended runs to clear the gate across the whole roster.
+3. **Flip production to real data**: in the Vercel project's Environment
+   Variables (Production), set `DATABASE_PATH=data/real.db`, then
+   redeploy (a redeploy is required — this only takes effect on the next
+   build, since the DB ships as a build artifact per
+   [Deployment](#where-things-live-on-vercel) below).
+4. **Verify**: load the production site and confirm the demo banner
+   ("Synthetic demo data. Not current airfare.") is gone, replaced by the
+   cached-data disclosure (`AGGREGATED_CACHED_SOURCE` /
+   `DataSourceMode.AGGREGATED_CACHED`, derived automatically from
+   `search_runs.provider_id` — see `lib/markets/dataSourceMode.ts`, no
+   separate flag to flip). Spot-check a market page shows real carriers
+   and a live recommendation, not `INSUFFICIENT_DATA`.
+
+### Rollback
+
+Unset `DATABASE_PATH` in Vercel's production Environment Variables (or
+set it back to unset/`./data/fare-terminal.db`) and redeploy. The build
+reverts to shipping the synthetic demo DB and the demo banner reappears —
+no code change or data loss involved; `data/real.db` keeps accumulating
+history via the Action in the background regardless of what production is
+currently pointed at.
 
 ## Reading pipeline logs
 

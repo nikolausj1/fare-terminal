@@ -14,6 +14,8 @@ import edgeFixture from './fixtures/travelpayouts/prices-for-dates-edge-cases.js
 import emptyFixture from './fixtures/travelpayouts/prices-for-dates-empty.json';
 import calendarHappyFixture from './fixtures/travelpayouts/calendar-happy.json';
 import calendarEmptyFixture from './fixtures/travelpayouts/calendar-empty.json';
+import realPricesFixture from './fixtures/travelpayouts/prices-for-dates-real-2026-07-24.json';
+import realCalendarFixture from './fixtures/travelpayouts/calendar-real-2026-07-24.json';
 
 const RETRIEVED_AT = Date.parse('2026-07-17T12:00:00.000Z');
 
@@ -199,6 +201,91 @@ describe('mapCalendar', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Real-world response fixtures (captured live 2026-07-24 — see the fixture
+// files' own _comment field for exact provenance). These exist because the
+// original hand-written fixtures didn't happen to cover two real quirks:
+// prices_for_dates reporting origin/destination as CITY codes distinct from
+// origin_airport/destination_airport, and the calendar endpoint using
+// departure_at/return_at rather than depart_date/return_date. See
+// docs/PROVIDERS.md "Real-world response notes".
+// ---------------------------------------------------------------------------
+
+describe('mapPricesForDates against a real captured response', () => {
+  it('prefers origin_airport/destination_airport over the city codes origin/destination', () => {
+    const result = mapPricesForDates(realPricesFixture, exactQuery(), RETRIEVED_AT);
+    expect(result.offers).toHaveLength(2);
+
+    const vs = result.offers.find((o) => o.validatingCarrier === 'VS');
+    expect(vs).toBeDefined();
+    // Real payload: origin="NYC", origin_airport="JFK", destination="LON",
+    // destination_airport="LHR". The adapter must use the airport codes.
+    expect(vs!.segments[0].origin).toBe('JFK');
+    expect(vs!.segments[1].destination).toBe('JFK');
+    expect(vs!.segments[0].destination).toBe('LHR');
+    expect(vs!.qualityFlags).not.toContain('CITY_CODE_FALLBACK');
+
+    const pr = result.offers.find((o) => o.validatingCarrier === 'PR');
+    expect(pr).toBeDefined();
+    // Real payload: destination="TYO" (city), destination_airport="HND".
+    expect(pr!.segments[0].destination).toBe('HND');
+    expect(pr!.qualityFlags).not.toContain('CITY_CODE_FALLBACK');
+  });
+
+  it('falls back to the city code and flags it when origin_airport/destination_airport are absent', () => {
+    const mutated = JSON.parse(JSON.stringify(realPricesFixture));
+    delete mutated.data[0].origin_airport;
+    delete mutated.data[0].destination_airport;
+
+    const result = mapPricesForDates(mutated, exactQuery(), RETRIEVED_AT);
+    const vs = result.offers.find((o) => o.validatingCarrier === 'VS');
+    expect(vs).toBeDefined();
+    // Falls back to the city codes from the real payload: origin="NYC", destination="LON".
+    expect(vs!.segments[0].origin).toBe('NYC');
+    expect(vs!.segments[0].destination).toBe('LON');
+    expect(vs!.qualityFlags).toContain('CITY_CODE_FALLBACK');
+    expect(
+      result.warnings.some((w) => w.includes('origin_airport/destination_airport missing'))
+    ).toBe(true);
+  });
+
+  it('tolerates the extra real-world fields (gate, duration_to, duration_back, the long link query string) without affecting mapping', () => {
+    const result = mapPricesForDates(realPricesFixture, exactQuery(), RETRIEVED_AT);
+    const vs = result.offers.find((o) => o.validatingCarrier === 'VS');
+    expect(vs!.totalPriceMinor).toBe(59200); // 592 * 100
+    expect(vs!.outboundUrl).toContain('aviasales.com/search/JFK2108LHR31081');
+  });
+});
+
+describe('mapCalendar against a real captured response', () => {
+  it('reads departure_at/return_at (not depart_date/return_date) from a real calendar response', () => {
+    const result = mapCalendar(realCalendarFixture, exactQuery({ origin: 'MSP', destination: 'CUN' }), RETRIEVED_AT);
+    expect(result.offers).toHaveLength(2);
+
+    const f9 = result.offers.find((o) => o.validatingCarrier === 'F9');
+    expect(f9).toBeDefined();
+    expect(f9!.segments).toHaveLength(2); // real return_at present -> round trip
+    expect(f9!.segments[0].departureAt).toBe(new Date('2026-07-28T22:15:00-05:00').toISOString());
+    expect(f9!.segments[1].departureAt).toBe(new Date('2026-08-04T20:32:00-05:00').toISOString());
+    expect(f9!.totalPriceMinor).toBe(65300); // 653 * 100
+  });
+
+  it('tags offers with CALENDAR_FALLBACK_SOURCE when used as the searchFlexible fallback', () => {
+    const withoutFallback = mapCalendar(realCalendarFixture, exactQuery({ origin: 'MSP', destination: 'CUN' }), RETRIEVED_AT);
+    expect(withoutFallback.offers[0].qualityFlags).not.toContain('CALENDAR_FALLBACK_SOURCE');
+
+    const withFallback = mapCalendar(
+      realCalendarFixture,
+      exactQuery({ origin: 'MSP', destination: 'CUN' }),
+      RETRIEVED_AT,
+      { fromCalendarFallback: true }
+    );
+    expect(withFallback.offers[0].qualityFlags).toContain('CALENDAR_FALLBACK_SOURCE');
+    // Still carries the standard honesty flags on top of the fallback tag.
+    expect(withFallback.offers[0].qualityFlags).toContain('AGGREGATED_CACHED_SOURCE');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // client.ts
 // ---------------------------------------------------------------------------
 
@@ -330,6 +417,71 @@ describe('travelpayoutsProvider', () => {
 
     expect(fetchImpl).toHaveBeenCalledTimes(3);
     expect(batch.warnings.some((w) => w.includes('only the first 3 were sampled'))).toBe(true);
+  });
+
+  it('does not call the calendar fallback when prices_for_dates already found offers', async () => {
+    vi.stubEnv('TRAVELPAYOUTS_TOKEN', 'test-token');
+    const fetchImpl = vi.fn(async () => jsonResponse(200, happyFixture)) as unknown as typeof fetch;
+    const provider = createTravelpayoutsProvider({ fetchImpl, clock: () => RETRIEVED_AT });
+
+    await provider.search(flexQuery({ departureWindowStart: '2026-08-01', departureWindowEnd: '2026-08-31' }));
+
+    // 1 sampled month -> exactly 1 call; no calendar fallback call added.
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to /v1/prices/calendar when every sampled month of prices_for_dates is empty, and includes the recovered offers with CALENDAR_FALLBACK_SOURCE', async () => {
+    vi.stubEnv('TRAVELPAYOUTS_TOKEN', 'test-token');
+    const fetchImpl = vi.fn(async (url: string | URL) => {
+      const urlStr = String(url);
+      if (urlStr.includes('/v1/prices/calendar')) {
+        return jsonResponse(200, realCalendarFixture);
+      }
+      return jsonResponse(200, emptyFixture);
+    }) as unknown as typeof fetch;
+    const provider = createTravelpayoutsProvider({ fetchImpl, clock: () => RETRIEVED_AT });
+
+    const batch = await provider.search(
+      flexQuery({ origin: 'MSP', destination: 'CUN', departureWindowStart: '2026-07-01', departureWindowEnd: '2026-08-31' })
+    );
+
+    // 2 sampled months (empty) + 1 calendar fallback call.
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(batch.warnings.some((w) => w.includes('calendar fallback'))).toBe(true);
+    expect(batch.offers.length).toBeGreaterThan(0);
+    expect(batch.offers.every((o) => o.qualityFlags.includes('CALENDAR_FALLBACK_SOURCE'))).toBe(true);
+  });
+
+  it('reports 0 offers (not an error) when both prices_for_dates and the calendar fallback are empty', async () => {
+    vi.stubEnv('TRAVELPAYOUTS_TOKEN', 'test-token');
+    const fetchImpl = vi.fn(async () => jsonResponse(200, emptyFixture)) as unknown as typeof fetch;
+    const provider = createTravelpayoutsProvider({ fetchImpl, clock: () => RETRIEVED_AT });
+
+    const batch = await provider.search(
+      flexQuery({ origin: 'PDX', destination: 'YVR', departureWindowStart: '2026-08-01', departureWindowEnd: '2026-08-31' })
+    );
+
+    expect(batch.offers).toEqual([]);
+    expect(fetchImpl).toHaveBeenCalledTimes(2); // 1 sampled month + 1 calendar fallback, both empty
+  });
+
+  it('does not throw when the calendar fallback call itself fails; reports 0 offers with a warning', async () => {
+    vi.stubEnv('TRAVELPAYOUTS_TOKEN', 'test-token');
+    const fetchImpl = vi.fn(async (url: string | URL) => {
+      const urlStr = String(url);
+      if (urlStr.includes('/v1/prices/calendar')) {
+        return jsonResponse(500, {});
+      }
+      return jsonResponse(200, emptyFixture);
+    }) as unknown as typeof fetch;
+    const provider = createTravelpayoutsProvider({ fetchImpl, clock: () => RETRIEVED_AT });
+
+    const batch = await provider.search(
+      flexQuery({ origin: 'ATL', destination: 'LIS', departureWindowStart: '2026-08-01', departureWindowEnd: '2026-08-31' })
+    );
+
+    expect(batch.offers).toEqual([]);
+    expect(batch.warnings.some((w) => w.includes('calendar fallback query failed'))).toBe(true);
   });
 
   it('healthCheck reports OK on a successful cheap calendar call', async () => {

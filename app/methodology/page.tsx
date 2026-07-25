@@ -24,6 +24,7 @@ const TOC = [
   { id: 'freshness', label: 'Freshness & staleness' },
   { id: 'data-quality', label: 'Data quality score' },
   { id: 'providers', label: 'Provider limitations' },
+  { id: 'data-freshness', label: 'Cached vs. live data' },
   { id: 'demo-data', label: 'Demo data labeling' },
   { id: 'no-guarantee', label: 'No guarantees' },
 ];
@@ -355,6 +356,35 @@ export default function MethodologyPage() {
             read as &quot;bookable right now at this price.&quot; See{' '}
             <code className="rounded bg-white/5 px-1 py-0.5">docs/PROVIDERS.md</code> in the repository for
             the full adapter-level detail.
+          </p>
+        </section>
+
+        <section id="data-freshness" aria-labelledby="data-freshness-h">
+          <h2 id="data-freshness-h" className="mb-2 text-lg font-semibold">
+            Cached vs. live data
+          </h2>
+          <p>
+            When this deployment is running against the TravelPayouts / Aviasales adapter, every price shown
+            is a <strong>cached, aggregated &quot;cheapest price seen&quot; observation</strong>, sourced from
+            real traveler searches — not a query this app triggers against an airline in real time. Per
+            TravelPayouts&apos; own documentation, those cache entries can be <strong>up to roughly 48 hours
+            old</strong> and are retained for 2&ndash;7 days; there is no guarantee the fare is still bookable
+            at that price, or at all. A banner at the top of every page discloses this whenever it applies, and
+            the &quot;Check current availability&quot; link on each market and offer takes you to the live
+            booking site to verify before you act on anything shown here.
+          </p>
+          <p className="mt-3">
+            The adapter also cannot see real per-leg segment data for these offers &mdash; only one airline
+            code, flight number, and total duration per result &mdash; so depart/arrive times and duration are{' '}
+            <em>reconstructed</em>, not observed: round-trip flight time is split 50/50 between outbound and
+            return (there&apos;s no way to recover the true split), and a missing duration falls back to a
+            fixed placeholder. Offers built this way carry <code className="rounded bg-white/5 px-1 py-0.5">SYNTHETIC_SEGMENTS</code>,{' '}
+            <code className="rounded bg-white/5 px-1 py-0.5">ESTIMATED_LEG_SPLIT</code>, and/or{' '}
+            <code className="rounded bg-white/5 px-1 py-0.5">ESTIMATED_DURATION</code> quality flags, and the
+            offers table marks their depart/arrive/duration cells &quot;est.&quot; accordingly. Fare brand,
+            booking class, and seat count are never known from this source either and always render &quot;Not
+            provided.&quot; See <code className="rounded bg-white/5 px-1 py-0.5">docs/PROVIDERS.md</code> for
+            the full adapter-level detail behind this section.
           </p>
         </section>
 

@@ -17,6 +17,38 @@ import type {
 } from '@/domain/types';
 import type { FairValueRange } from '@/domain/history';
 
+/**
+ * What kind of data the currently-connected DB actually contains, derived
+ * from the DISTINCT provider_id values present in search_runs — NEVER from
+ * an env var (env vars describe how the pipeline was *configured* to run,
+ * not what ended up in the database; e.g. DATA_PROVIDER could be flipped
+ * without re-seeding). See lib/markets/queries.ts#getDataSourceMode.
+ *
+ * - 'DEMO': every search_runs.provider_id is 'demo' (or there are no runs
+ *   yet — an empty/fresh DB defaults to DEMO).
+ * - 'AGGREGATED_CACHED': every search_runs.provider_id is a real provider
+ *   (currently only 'travelpayouts') — cached, aggregated observations, not
+ *   live quotes.
+ * - 'MIXED': both demo and real provider_ids are present in the same DB.
+ *   This should never happen by design (demo and real deployments use
+ *   separate DB files) — it exists purely as a tripwire so a data-integrity
+ *   bug surfaces loudly in the UI instead of silently blending synthetic
+ *   and real prices.
+ */
+export type DataSourceMode = 'DEMO' | 'AGGREGATED_CACHED' | 'MIXED';
+
+/** Quality flags (from lib/providers/travelpayouts/mapping.ts) that mean an
+ * offer's depart/arrive/duration fields are not sourced from a verified
+ * per-leg itinerary and should be labeled "est." in the UI. Duplicated here
+ * as plain string literals (rather than imported) so lib/markets stays
+ * decoupled from lib/providers/** — the two are owned by different work
+ * packages and the flag values are a stable string contract, not a type. */
+export const ESTIMATED_TIMING_QUALITY_FLAGS = [
+  'SYNTHETIC_SEGMENTS',
+  'ESTIMATED_LEG_SPLIT',
+  'ESTIMATED_DURATION',
+] as const;
+
 /** Everything needed to render one market's detail page / summary card. */
 export interface MarketSummaryVM {
   definition: {
@@ -56,9 +88,11 @@ export interface MarketSummaryVM {
    * lib/markets/queries.ts#getDatasetAnchor for why. */
   freshness: { ageSeconds: number; isStale: boolean };
   dataQuality: number;
-  /** Always true for the demo provider (DATA_PROVIDER=demo). Exposed so the
-   * UI can label prices/freshness as demo data rather than implying a live
-   * feed. */
+  /** DB-derived data source mode — see DataSourceMode. */
+  dataSourceMode: DataSourceMode;
+  /** Derived alias: `dataSourceMode === 'DEMO'`. Kept for backward
+   * compatibility with existing callers/tests; prefer `dataSourceMode` for
+   * anything that needs to distinguish AGGREGATED_CACHED from MIXED. */
   demoMode: boolean;
   /** The dataset anchor (max observed_at across all offer_observations) that
    * `freshness` above is computed relative to. */
@@ -101,6 +135,11 @@ export interface OfferRowVM {
   seatsRemaining: number | null;
   lastObservedAt: number;
   outboundUrl: string | null;
+  /** Raw quality-flag strings carried over from offer_observations.
+   * qualityFlags — e.g. 'AGGREGATED_CACHED_SOURCE', 'SYNTHETIC_SEGMENTS'.
+   * The UI uses this to decide whether depart/arrive/duration should be
+   * labeled "est." — see ESTIMATED_TIMING_QUALITY_FLAGS above. */
+  qualityFlags: string[];
 }
 
 /** A compact card summarizing one market, used in market-pulse sections and
@@ -131,6 +170,10 @@ export interface PulseVM {
     event: MarketEventVM;
   }[];
   freshness: { datasetAnchorAt: number; generatedAt: number };
+  /** DB-derived data source mode — see DataSourceMode. */
+  dataSourceMode: DataSourceMode;
+  /** Derived alias: `dataSourceMode === 'DEMO'`. Kept for backward
+   * compatibility; prefer `dataSourceMode`. */
   demoMode: boolean;
 }
 

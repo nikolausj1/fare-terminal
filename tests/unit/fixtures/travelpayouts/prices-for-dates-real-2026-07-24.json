@@ -1,0 +1,43 @@
+{
+  "_comment": "Captured verbatim from a live GET /aviasales/v3/prices_for_dates call against api.travelpayouts.com on 2026-07-24 (JFK-LHR and LAX-HND, one entry each, trimmed from larger real responses). No token or other credential is present in this file — the `link` field is a public deep-link search-session path returned by the API itself. Demonstrates the real-world quirk: `origin`/`destination` are CITY codes (NYC, TYO) while `origin_airport`/`destination_airport` are the actual airport codes (JFK/LHR, LAX/HND) — see docs/PROVIDERS.md 'Real-world response notes'.",
+  "success": true,
+  "currency": "usd",
+  "data": [
+    {
+      "flight_number": "26",
+      "link": "/search/JFK2108LHR31081?t=VS17873001001787343000000415JFKLHR17881767001788195900000620LHRAMSJFK_2d569fa73af7e1bc24cef81ffd4a28c0_45971&search_date=24072026&expected_price_uuid=019f9677-d8a5-8040-2f82-fe314a5cf189&static_fare_key=TY%7CP0%7CH1%7CL0%7CCH0%7CR0%7CTBC0&itinerary_key=ufQj44MBeoAdKyB0pUosVA&origin_airports=0,1&destination_airports=0,1&expected_price_source=share&expected_price_currency=usd&expected_price=592",
+      "origin_airport": "JFK",
+      "destination_airport": "LHR",
+      "departure_at": "2026-08-21T08:15:00-04:00",
+      "airline": "VS",
+      "destination": "LON",
+      "return_at": "2026-08-31T11:45:00+01:00",
+      "origin": "NYC",
+      "price": 592,
+      "gate": "Skytripfare",
+      "return_transfers": 1,
+      "duration": 1035,
+      "duration_to": 415,
+      "duration_back": 565,
+      "transfers": 0
+    },
+    {
+      "flight_number": "103",
+      "link": "/search/LAX0908HND23081?t=PR17863191001786455300001310LAXMNLHND17874969001787579100002330HNDMNLLAX_dd8eb0e9d1edadee8af77073252182be_72027&search_date=20072026&expected_price_uuid=019f8196-8294-8040-a678-9ac7fb4e178b&static_fare_key=TY%7CP1%7CH1%7CL1_1_23%7CCH0%7CR0%7CTBC1&itinerary_key=Y8mbmUtznzPX-8-waAhsig&origin_airports=1&destination_airports=0&expected_price_source=share&expected_price_currency=usd&expected_price=917",
+      "origin_airport": "LAX",
+      "destination_airport": "HND",
+      "departure_at": "2026-08-09T23:45:00-07:00",
+      "airline": "PR",
+      "destination": "TYO",
+      "return_at": "2026-08-23T14:55:00+09:00",
+      "origin": "LAX",
+      "price": 917,
+      "gate": "Trip.com",
+      "return_transfers": 1,
+      "duration": 3640,
+      "duration_to": 1145,
+      "duration_back": 1105,
+      "transfers": 1
+    }
+  ]
+}

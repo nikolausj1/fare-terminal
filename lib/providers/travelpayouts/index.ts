@@ -17,7 +17,7 @@ import type {
 
 import type { FlightDataProvider } from '../types';
 import { createTravelpayoutsClient, ProviderError, type QueryParams } from './client';
-import { mapPricesForDates } from './mapping';
+import { mapCalendar, mapPricesForDates } from './mapping';
 import { createRateLimiter, type RateLimiter } from './rateLimiter';
 
 const PRICES_FOR_DATES_PATH = '/aviasales/v3/prices_for_dates';
@@ -189,6 +189,42 @@ export function createTravelpayoutsProvider(options: TravelpayoutsProviderOption
       const mapped = mapPricesForDates(json, query, retrievedAt);
       offers.push(...mapped.offers);
       warnings.push(...mapped.warnings);
+    }
+
+    // Real-world fallback: prices_for_dates queried at month granularity for
+    // a ROUND_TRIP (both departure_at and return_at set to the same month)
+    // is frequently empty for routes that DO have real cached data —
+    // confirmed 2026-07-24 by cross-checking against /v1/prices/calendar,
+    // which returned a genuine cached round-trip fare for a route
+    // prices_for_dates had nothing for. /v1/prices/calendar's cache appears
+    // broader for this query shape. Only spend the extra request when the
+    // primary path came back completely empty (not per-month, to keep the
+    // typical-case request count unchanged), and only probe the first
+    // sampled month — thin routes tend to stay thin across nearby months, so
+    // one probe is enough to tell honest scarcity from a granularity miss.
+    if (offers.length === 0 && sampledMonths.length > 0) {
+      const fallbackMonth = sampledMonths[0];
+      warnings.push(
+        `prices_for_dates returned 0 offers across all ${sampledMonths.length} sampled month(s); trying a /v1/prices/calendar fallback query for ${fallbackMonth} before giving up.`
+      );
+      try {
+        const calendarJson = await callGet<unknown>(CALENDAR_PATH, {
+          origin: query.origin,
+          destination: query.destination,
+          depart_date: fallbackMonth,
+          calendar_type: 'departure_date',
+          currency: query.currency.toLowerCase(),
+        });
+        const calendarMapped = mapCalendar(calendarJson, query, retrievedAt, { fromCalendarFallback: true });
+        offers.push(...calendarMapped.offers);
+        warnings.push(...calendarMapped.warnings);
+      } catch (err) {
+        // A fallback failing (including hitting the rate limit) must not
+        // fail the whole search — the primary path already ran and
+        // genuinely found nothing; report that as-is rather than erroring.
+        const message = err instanceof Error ? err.message : String(err);
+        warnings.push(`calendar fallback query failed, proceeding with 0 offers: ${message}`);
+      }
     }
 
     const windowStartMs = Date.parse(query.departureWindowStart);

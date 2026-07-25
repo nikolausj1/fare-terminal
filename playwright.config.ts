@@ -25,13 +25,17 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm run dev -- --port 3111',
+    // Production server, not `next dev`: a cold Turbopack dev compile was
+    // measured at ~100s on this machine, which flakes the 120s startup
+    // budget under any load, while `next start` boots in about a second and
+    // exercises the same server path production runs (including the
+    // finalized read-only-capable DB). PREREQUISITE: `npm run build` must
+    // have run first — the standard gate order (typecheck, lint, test,
+    // build, test:e2e) and the CI job both guarantee this; if you run
+    // test:e2e standalone after changing app code, build first.
+    command: 'npm run start -- --port 3111',
     url: 'http://localhost:3111',
     reuseExistingServer: !process.env.CI,
-    // Turbopack cold start + first-route compile can take a few seconds
-    // beyond Playwright's 60s default when the DB file is already present
-    // but no route has been compiled yet; give it real headroom rather
-    // than flaking on a slow first run.
     timeout: 120_000,
   },
 });

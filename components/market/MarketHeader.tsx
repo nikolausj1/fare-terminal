@@ -15,7 +15,12 @@ export function MarketHeader({
   urlState: MarketUrlState;
   outboundUrl: string | null;
 }) {
-  const { definition, snapshot, freshness } = summary;
+  const { definition, snapshot, freshness, dataSourceMode } = summary;
+  const isDemo = dataSourceMode === 'DEMO';
+  const noLinkTitle = isDemo ? 'Not available in demo' : 'No outbound booking link for this offer';
+  const noLinkCaption = isDemo
+    ? 'Not available in demo — no external booking link for this offer.'
+    : 'No external booking link for this offer.';
 
   return (
     <>
@@ -73,14 +78,14 @@ export function MarketHeader({
             <button
               type="button"
               disabled
-              title="Not available in demo"
+              title={noLinkTitle}
               className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-md border border-[var(--border-strong)] px-4 py-2 text-sm font-semibold text-[var(--text-tertiary)]"
             >
               Check current availability <span aria-hidden="true">↗</span>
             </button>
           )}
           <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-            {outboundUrl ? 'Prices may have changed. External site.' : 'Not available in demo — no external booking link for this offer.'}
+            {outboundUrl ? 'Prices may have changed. External site.' : noLinkCaption}
           </p>
         </div>
       </header>

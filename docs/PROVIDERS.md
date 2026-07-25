@@ -201,3 +201,123 @@ user search. Status mapping:
   (transient — the account/IP is over budget, not down).
 - Any other failure (5xx after retry, network error, timeout, missing
   token) → `DOWN`.
+
+## Real-world response notes (WP-B, live testing 2026-07-24)
+
+Everything above was written against the Travelpayouts docs and hand-written
+fixtures before this adapter had ever been pointed at a real token. WP-B
+activated a real `TRAVELPAYOUTS_TOKEN`, ran real ingestion sweeps into a
+dedicated `data/real.db` (see `scripts/bootstrap-real.ts` /
+`npm run bootstrap:real` — never the demo `data/fare-terminal.db`), and found
+two real quirks the original fixtures didn't cover, both now fixed and
+fixture-tested with fixtures captured from live responses (see
+`tests/unit/fixtures/travelpayouts/*-real-2026-07-24.json`, and the new
+`describe(...against a real captured response...)` blocks in
+`tests/unit/travelpayouts.test.ts`).
+
+### 1. `origin`/`destination` are CITY codes, not airport codes — and the adapter was ignoring the fields that are
+
+`priceForDatesItemSchema` already declared `origin_airport`/
+`destination_airport` as optional fields, but `mapPricesForDates` never
+actually read them — it built every offer from the plain `origin`/
+`destination` fields instead. Those turn out to be **city** codes (e.g. a
+real JFK→LHR response reports `"origin": "NYC"`, `"destination": "LON"`),
+while `origin_airport`/`destination_airport` carry the actual airport flown
+(`"JFK"`, `"LHR"`). For a single-airport city (DEN, ATL, LAX, ...) the two
+happen to coincide, which is why this went unnoticed against routes like
+that; a multi-airport city (New York, London, Tokyo — real captured example:
+LAX→HND reported `destination: "TYO"` vs. `destination_airport: "HND"`)
+exposes it immediately.
+
+Fix (`lib/providers/travelpayouts/mapping.ts`): both `mapPricesForDates` and
+`mapCalendar` now resolve origin/destination via a shared
+`resolveAirportCode()` helper that prefers `origin_airport`/
+`destination_airport` and only falls back to the city code when the airport
+field is absent, in which case the offer is tagged with the new quality flag
+**`CITY_CODE_FALLBACK`** and a batch warning is emitted (this fallback path
+is unit-tested but has not yet been observed live — the *_airport fields
+were present on every real offer captured so far).
+
+### 2. `/v1/prices/calendar` uses `departure_at`/`return_at`, not `depart_date`/`return_date`
+
+The original `calendarItemSchema` and `mapCalendar` only recognized
+`depart_date`/`return_date`, per older Travelpayouts docs/examples. A real
+calendar response (`origin=MSP&destination=CUN&depart_date=2026-08`)
+returned `departure_at`/`return_at` instead — matching `prices_for_dates`'
+naming, not the documented calendar-specific names. Because `mapCalendar`
+falls back to the response's own date-string object key when `depart_date`
+is absent, this didn't crash or even warn — it silently mapped every
+calendar-sourced offer as one-way (the real `return_at` value was being
+dropped by the schema, since zod strips unrecognized keys), discarding a
+real return leg.
+
+Fix: `calendarItemSchema` now accepts both `depart_date`/`return_date` and
+`departure_at`/`return_at`; `mapCalendar` prefers the latter
+(`item.departure_at ?? item.depart_date ?? dateKey`, similarly for the
+return field) since that's what live traffic has actually shown.
+
+### 3. `prices_for_dates` at month granularity is honestly very sparse for round-trip searches on non-marquee routes
+
+This one is real-world data scarcity, not a bug — recorded here because it
+directly explains the offer counts in a real sweep. The FLEXIBLE search
+mode's month-level `prices_for_dates` query
+(`departure_at=YYYY-MM&return_at=YYYY-MM`, both the same month, matching the
+5–9 night stay window used by the demo market catalog) returned **zero**
+offers for 7 of the 12 demo markets (`msp-cun`, `den-kef`, `atl-lis`,
+`bos-dub`, `aus-mex`, `pdx-yvr`, `den-atl`) across all 3 sampled months, in
+two separate live sweeps. Only busier international routes (`jfk-lhr`,
+`lax-hnd`, `ord-cdg`, `sfo-bcn`, `sea-fco`) had round-trip cache hits at
+month granularity. This was confirmed to be real cache sparsity, not a
+request-shape mistake, by cross-checking with `/v1/prices/calendar` (which
+aggregates "cheapest price per day" more broadly): it *does* have real
+cached round-trip fares for some of these routes (e.g. `DEN→ATL`: a real
+F9 $298 round trip, `MSP→CUN`: real F9 $653 and AA $548 round trips) — but
+for dates outside the demo market's 21–90-day search window (a few days out,
+or over a year out), so they're correctly excluded by the existing
+window/stay-length filter rather than fabricated into the result.
+
+Mitigation added (`lib/providers/travelpayouts/index.ts#searchFlexible`):
+when the primary `prices_for_dates` sampling comes back completely empty
+across all sampled months, the adapter makes **one** additional
+`/v1/prices/calendar` call (for the first sampled month only, to bound the
+extra request cost) and merges in anything real found there, tagging those
+offers with the new quality flag **`CALENDAR_FALLBACK_SOURCE`**. This is a
+genuine improvement (it recovers real data when the calendar cache has
+something prices_for_dates didn't), but it did not flip any of the 7 thin
+demo markets to non-empty in live testing on 2026-07-24 — their calendar
+data, where it existed at all, fell outside the search window. Two real
+sweeps (see the ingestion log in `STATUS.md`/final report) both landed at
+**5 of 12 markets with real offers** (28 offers each time, reproducible).
+This is the honest state of Travelpayouts' cache for these specific
+routes/dates as of this writing, not an adapter defect — see the "What data
+this actually is" section above.
+
+### 4. Extra real-world fields tolerated without any schema change
+
+Real responses carry several fields beyond what either schema declares —
+`gate` (the OTA/booking partner name, e.g. `"Kiwi.com"`, `"Skytripfare"`),
+`duration_to`/`duration_back` (the real outbound/return leg durations —
+notably, `prices_for_dates` *does* sometimes report the true split rather
+than only a combined `duration`, but this adapter does not yet use them;
+see the Ideas Shelf in `STATUS.md`), and a much longer `link` value than the
+original fixtures modeled (a full search-session path with `search_date`,
+`expected_price_uuid`, `static_fare_key`, etc.). All of these pass through
+harmlessly today because zod's default object parsing strips unrecognized
+keys instead of failing — exactly the design the original fixtures'
+comments called out, now confirmed against live traffic.
+
+### Operational note: Dropbox and SQLite don't mix well for *new* files
+
+Unrelated to the API itself, but cost real time during WP-B: this repo lives
+inside a Dropbox-synced folder. Opening a **brand-new** (just-created)
+sqlite file with `better-sqlite3` from inside that folder can hang
+indefinitely — Dropbox's client briefly holds an exclusive lock on a
+just-created/just-modified file while it hashes and syncs it, and
+`better-sqlite3`'s blocking OS-level file-lock acquisition has no timeout.
+An **existing, already-synced** file (like `data/fare-terminal.db`) opens
+instantly; only first-time creation of a new file is affected.
+`scripts/bootstrap-real.ts` works around this itself (pre-creates an empty
+file and waits ~8s before opening a connection to it), but any other tooling
+that creates a brand-new sqlite file in this repo should do the same or
+expect an indefinite hang. This is distinct from the previously-documented
+`node_modules` dehydration gotcha (`Unknown system error -70`).

@@ -124,10 +124,31 @@ demonstrate a specific scenario:
 
 ## Switching to real data (TravelPayouts)
 
-Set `DATA_PROVIDER=travelpayouts` and `TRAVELPAYOUTS_TOKEN=<your token>`
-(get one at travelpayouts.com → API tab → Data API token). If the token is
-unset, the provider registry logs a warning and falls back to `demo` rather
-than crashing or making unauthenticated requests.
+Real-data mode uses a dedicated database (`data/real.db`), kept entirely
+separate from the synthetic demo database (`data/fare-terminal.db`) so
+real and fabricated observations never mix:
+
+```bash
+DATABASE_PATH=data/real.db DATA_PROVIDER=travelpayouts npm run bootstrap:real  # schema + roster (idempotent)
+DATABASE_PATH=data/real.db DATA_PROVIDER=travelpayouts npm run ingest         # one live provider sweep
+DATABASE_PATH=data/real.db DATA_PROVIDER=travelpayouts npm run pipeline       # derive snapshots/events/recs/notes
+```
+
+This requires `TRAVELPAYOUTS_TOKEN=<your token>` (get one at
+travelpayouts.com → API tab → Data API token); `TRAVELPAYOUTS_MARKER` is
+optional and only needed for attributed outbound booking links. If the
+token is unset, the provider registry logs a warning and falls back to
+`demo` rather than crashing or making unauthenticated requests.
+
+The tracked roster (currently 10 markets, chosen by measured Aviasales
+cache coverage) lives in `REAL_MARKETS` in `scripts/bootstrap-real.ts`.
+`.github/workflows/real-data-refresh.yml` runs the three commands above
+on a 6-hour schedule and commits `data/real.db` back to `main` when it
+changes — see [`docs/RUNBOOK.md`](docs/RUNBOOK.md)'s "Real data
+operations" section for the roster's coverage-probe method, the Action's
+full behavior, and the exact production-cutover checklist (enabling the
+workflow, the history-accumulation wait, flipping Vercel's
+`DATABASE_PATH`, and rollback).
 
 **Read this before trusting it as a live feed**: TravelPayouts' Data API
 returns cached, aggregated "cheapest price seen" observations (up to ~48h

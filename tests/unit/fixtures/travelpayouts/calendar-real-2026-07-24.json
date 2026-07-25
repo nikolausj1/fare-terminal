@@ -1,0 +1,29 @@
+{
+  "_comment": "Captured verbatim from a live GET /v1/prices/calendar call against api.travelpayouts.com on 2026-07-24 (origin=MSP, destination=CUN, depart_date=2026-08, calendar_type=departure_date). No token or other credential is present in this file. Demonstrates the real-world quirk: this endpoint's per-entry date fields are `departure_at`/`return_at` (matching prices_for_dates), NOT `depart_date`/`return_date` as older TravelPayouts docs/examples show — see docs/PROVIDERS.md 'Real-world response notes'. Also demonstrates that a month-granularity depart_date request can return entries outside the requested calendar month (2027-06-02 here, for a 2026-08 request).",
+  "success": true,
+  "currency": "usd",
+  "data": {
+    "2026-07-28": {
+      "origin": "MSP",
+      "destination": "CUN",
+      "airline": "F9",
+      "departure_at": "2026-07-28T22:15:00-05:00",
+      "return_at": "2026-08-04T20:32:00-05:00",
+      "expires_at": "2026-07-25T06:16:21Z",
+      "price": 653,
+      "flight_number": 1149,
+      "transfers": 2
+    },
+    "2027-06-02": {
+      "origin": "MSP",
+      "destination": "CUN",
+      "airline": "AA",
+      "departure_at": "2027-06-02T06:00:00-05:00",
+      "return_at": "2027-06-09T14:35:00-05:00",
+      "expires_at": "2026-07-25T06:16:21Z",
+      "price": 548,
+      "flight_number": 1870,
+      "transfers": 1
+    }
+  }
+}

@@ -41,8 +41,14 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# sqlite data
-/data/
+# sqlite data — real.db is the production real-data artifact (see
+# docs/RUNBOOK.md's "Real data operations" section): everything else in
+# data/ (the demo DB, -wal/-shm sidecars for either DB) stays ignored, but
+# data/real.db itself is trackable so the real-data-refresh Action can
+# commit it. This does NOT stage it automatically — the lead decides when
+# the first real DB lands in git (the production cutover moment).
+data/*
+!data/real.db
 
 # test artifacts
 /test-results/

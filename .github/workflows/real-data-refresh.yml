@@ -1,0 +1,97 @@
+name: Real Data Refresh
+
+# Refreshes data/real.db from the live TravelPayouts provider on a fixed
+# cadence and commits the result back to main. Runs the same three-step
+# flow documented in docs/RUNBOOK.md's "Real data operations" section:
+#
+#   DATABASE_PATH=data/real.db npm run bootstrap:real   (idempotent schema/roster upsert)
+#   DATABASE_PATH=data/real.db npm run ingest            (one provider sweep)
+#   DATABASE_PATH=data/real.db npm run pipeline          (derive snapshots/events/recs/notes)
+#
+# then commits data/real.db back to main ONLY if it actually changed.
+#
+# IMPORTANT: once DATABASE_PATH=data/real.db is set in Vercel's production
+# environment (see the cutover checklist in docs/RUNBOOK.md), committing
+# data/real.db to main triggers a Vercel deploy on every successful refresh.
+# This is intentional — it's how production picks up new real data. The
+# "[skip ci]" in the commit message below only skips *this repo's* GitHub
+# Actions CI workflow (ci.yml) from re-triggering on the push; it has no
+# effect on Vercel's git-push deploy hook, which always fires regardless.
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+# Never let two refreshes race each other (e.g. a manual dispatch firing
+# mid-schedule) — a second run would ingest/commit against a DB file the
+# first run is still mutating. Queue rather than cancel so no scheduled
+# sweep is silently dropped.
+concurrency:
+  group: real-data-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Bootstrap real-data DB (idempotent schema/roster upsert)
+        run: npm run bootstrap:real
+        env:
+          DATABASE_PATH: data/real.db
+          DATA_PROVIDER: travelpayouts
+
+      - name: Ingest one provider sweep
+        run: npm run ingest
+        env:
+          DATABASE_PATH: data/real.db
+          DATA_PROVIDER: travelpayouts
+          TRAVELPAYOUTS_TOKEN: ${{ secrets.TRAVELPAYOUTS_TOKEN }}
+          TRAVELPAYOUTS_MARKER: ${{ secrets.TRAVELPAYOUTS_MARKER }}
+
+      - name: Run derivation pipeline
+        run: npm run pipeline
+        env:
+          DATABASE_PATH: data/real.db
+          DATA_PROVIDER: travelpayouts
+          TRAVELPAYOUTS_TOKEN: ${{ secrets.TRAVELPAYOUTS_TOKEN }}
+          TRAVELPAYOUTS_MARKER: ${{ secrets.TRAVELPAYOUTS_MARKER }}
+
+      - name: Commit data/real.db if changed
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # .gitignore has `data/*` + `!data/real.db`, so real.db is already
+          # trackable — the -f is a defensive no-op kept in case that
+          # exception is ever reverted.
+          git add -f data/real.db
+
+          if git diff --staged --quiet; then
+            echo "No changes to data/real.db; nothing to commit."
+            exit 0
+          fi
+
+          git commit -m "$(cat <<'EOF'
+          chore: refresh real airfare data [skip ci]
+
+          Co-Authored-By: Claude <noreply@anthropic.com>
+          EOF
+          )"
+          git push origin HEAD:main

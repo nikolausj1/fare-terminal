@@ -109,6 +109,17 @@ function dataQualityLabel(score: number): 'HIGH' | 'MEDIUM' | 'LOW' {
   return 'LOW';
 }
 
+/** WP-F1 fix 1: whether a snapshot's benchmark price is reliable enough to
+ * display as a real price. See config.display.minQualityForPrice and
+ * MarketSummaryVM.priceReliable for the full rationale — the short version
+ * is that a snapshot derived from zero valid offers legitimately computes
+ * benchmarkPriceMinor: 0 / dataQualityScore: 0
+ * (domain/snapshots/computeSnapshotMetrics.ts), which is structurally
+ * indistinguishable from a real $0 fare unless checked explicitly here. */
+function isPriceReliable(snapshot: { benchmarkPriceMinor: number; dataQualityScore: number }): boolean {
+  return snapshot.benchmarkPriceMinor > 0 && snapshot.dataQualityScore >= config.display.minQualityForPrice;
+}
+
 // ---------------------------------------------------------------------------
 // Definition resolution
 // ---------------------------------------------------------------------------
@@ -121,15 +132,34 @@ export interface MarketLookupParams {
   return?: string;
 }
 
+/** Non-null when the caller asked for EXACT-date data but resolution had to
+ * silently substitute the FLEXIBLE-window definition instead — see
+ * resolveDefinitionDetailed. Mirrors MarketSummaryVM.modeFallback. */
+export interface ModeFallback {
+  requested: 'EXACT';
+  served: 'FLEXIBLE';
+}
+
+export interface DefinitionResolution {
+  definition: SearchDefinitionRow | null;
+  modeFallback: ModeFallback | null;
+}
+
 /** Resolves a search_definitions row from an origin/destination IATA pair +
- * optional disambiguating params. Does NOT create anything — a route with
- * no matching definition should 404. Defaults to FLEXIBLE unless `mode` is
+ * optional disambiguating params, and reports whether the requested mode
+ * had to be silently substituted (WP-F1 fix 2 — previously this fallback
+ * was invisible to callers, so an EXACT-date request that had no matching
+ * definition would render as if it were honored, with no indication the
+ * numbers are actually the flexible-window benchmark). Does NOT create
+ * anything — a route with no matching definition at all (not even a
+ * FLEXIBLE fallback) should 404. Defaults to FLEXIBLE unless `mode` is
  * given or a `depart` date implies EXACT. */
-export function resolveDefinition(
+export function resolveDefinitionDetailed(
   origin: string,
   destination: string,
   params: MarketLookupParams = {}
-): SearchDefinitionRow | null {
+): DefinitionResolution {
+  const NOT_FOUND: DefinitionResolution = { definition: null, modeFallback: null };
   const originCode = origin.toUpperCase();
   const destCode = destination.toUpperCase();
 
@@ -143,7 +173,7 @@ export function resolveDefinition(
     .from(marketScopes)
     .where(and(eq(marketScopes.scopeType, 'AIRPORT'), eq(marketScopes.code, destCode)))
     .get();
-  if (!originScope || !destScope) return null;
+  if (!originScope || !destScope) return NOT_FOUND;
 
   const candidates = db
     .select()
@@ -156,7 +186,7 @@ export function resolveDefinition(
       )
     )
     .all();
-  if (candidates.length === 0) return null;
+  if (candidates.length === 0) return NOT_FOUND;
 
   const desiredMode: SearchMode = params.mode ?? (params.depart ? 'EXACT' : 'FLEXIBLE');
 
@@ -173,19 +203,34 @@ export function resolveDefinition(
   if (primary.length > 0) {
     if (desiredMode === 'EXACT' && params.depart) {
       const exact = primary.find((def) => def.departureDate === params.depart);
-      if (exact) return exact;
+      if (exact) return { definition: exact, modeFallback: null };
     }
-    return primary[0];
+    return { definition: primary[0], modeFallback: null };
   }
 
   // Fall back to FLEXIBLE (the always-seeded mode) when the requested mode
-  // has no matching definition.
+  // has no matching definition. desiredMode is narrowed to 'EXACT' here
+  // since SearchMode only has the two values and we already returned above
+  // for a non-empty 'FLEXIBLE' primary match.
   if (desiredMode !== 'FLEXIBLE') {
     const fallback = filterFor('FLEXIBLE');
-    if (fallback.length > 0) return fallback[0];
+    if (fallback.length > 0) {
+      return { definition: fallback[0], modeFallback: { requested: 'EXACT', served: 'FLEXIBLE' } };
+    }
   }
 
-  return null;
+  return NOT_FOUND;
+}
+
+/** Definition-only convenience wrapper around resolveDefinitionDetailed for
+ * the callers (refresh/history/events routes) that never pass a `mode`/
+ * `depart` param and so can never trigger a fallback worth reporting. */
+export function resolveDefinition(
+  origin: string,
+  destination: string,
+  params: MarketLookupParams = {}
+): SearchDefinitionRow | null {
+  return resolveDefinitionDetailed(origin, destination, params).definition;
 }
 
 export function resolveDefinitionByIdOrSlug(defIdOrSlug: number | string): SearchDefinitionRow | null {
@@ -265,14 +310,23 @@ export function getMarketSummary(
   destination: string,
   params: MarketLookupParams = {}
 ): MarketSummaryVM | null {
-  const def = resolveDefinition(origin, destination, params);
+  const { definition: def, modeFallback } = resolveDefinitionDetailed(origin, destination, params);
   if (!def) return null;
 
   const compatible = loadCompatibleSnapshots(def.id);
   if (compatible.length === 0) return null;
 
+  // `current` is always the latest compatible snapshot regardless of its
+  // reliability — WP-F1 fix 1 wants the summary card to visibly flag an
+  // unreliable current price, not silently fall back to an older snapshot
+  // and understate staleness. History used for change%/percentile/fair
+  // value comparisons, however, is filtered to reliable points only: a
+  // zero-valid-offer snapshot sitting in the middle of the series would
+  // otherwise corrupt those statistics (a $0 "previous" price turns any
+  // later comparison into a nonsensical +Infinity%/-100% swing).
   const current = compatible[compatible.length - 1];
-  const history = compatible.slice(0, -1);
+  const history = compatible.slice(0, -1).filter(isPriceReliable);
+  const priceReliable = isPriceReliable(current);
 
   const originScope = db.select().from(marketScopes).where(eq(marketScopes.id, def.originScopeId)).get();
   const destScope = db
@@ -287,8 +341,14 @@ export function getMarketSummary(
     ? db.select().from(airports).where(eq(airports.iataCode, destScope.code)).get()
     : undefined;
 
+  // change/percentile/fairValue all compare `current`'s price against
+  // history — skip computing them (leave null) when current itself isn't
+  // reliable, so an unreliable price never surfaces as a misleading "-100%"
+  // delta or "cheaper than 100% of history" percentile in ANY consumer
+  // (SummaryCard, WhatChangedPanel, the raw API response), not just the
+  // one component that explicitly checks priceReliable.
   let change: MarketSummaryVM['change'] = null;
-  if (history.length > 0) {
+  if (priceReliable && history.length > 0) {
     const prev24h = nearestByTime(history, current.snapshotAt - DAY_MS, 6 * HOUR_MS);
     const prev7d = nearestByTime(history, current.snapshotAt - 7 * DAY_MS, 2 * DAY_MS);
     change = {
@@ -299,7 +359,8 @@ export function getMarketSummary(
   }
 
   const historyPrices = history.map((s) => s.benchmarkPriceMinor);
-  const percentile = history.length > 0 ? historicalPercentile(current.benchmarkPriceMinor, historyPrices) : null;
+  const percentile =
+    priceReliable && history.length > 0 ? historicalPercentile(current.benchmarkPriceMinor, historyPrices) : null;
   const fairValue = fairValueRange(historyPrices);
 
   const recRow = db
@@ -351,6 +412,8 @@ export function getMarketSummary(
     dataSourceMode,
     demoMode: dataSourceMode === 'DEMO',
     datasetAnchorAt: anchor,
+    priceReliable,
+    modeFallback,
   };
 }
 
@@ -388,7 +451,13 @@ export function getMarketHistory(defIdOrSlug: number | string, range: HistoryRan
 
   const anchor = compatible[compatible.length - 1].snapshotAt;
   const windowMs = rangeToMs(range);
-  const inRange = windowMs === null ? compatible : compatible.filter((s) => s.snapshotAt >= anchor - windowMs);
+  const inRangeAll = windowMs === null ? compatible : compatible.filter((s) => s.snapshotAt >= anchor - windowMs);
+  // WP-F1 fix 1: drop points whose price isn't reliable (see
+  // HistoryPointVM's doc comment for why exclusion rather than a flag) —
+  // the gapAfter logic below then naturally renders a visual break across
+  // whatever was removed, since the interval between the surrounding kept
+  // points widens.
+  const inRange = inRangeAll.filter(isPriceReliable);
   if (inRange.length === 0) return [];
 
   const intervals: number[] = [];
@@ -580,8 +649,15 @@ export function getMarketPulse(): PulseVM {
     const isFresh = ageSeconds <= config.freshness.staleAfterMinutes * 60;
     if (!isFresh) continue;
     if (current.dataQualityScore < config.pulse.minDataQualityScore) continue;
+    // WP-F1 fix 1: config.pulse.minDataQualityScore (0.5) already excludes
+    // the zero-valid-offer case (dataQualityScore 0) that motivated this
+    // check, but it's stricter on quality alone — a snapshot could clear
+    // 0.5 overall quality while its benchmarkPriceMinor is still <= 0 (or
+    // near enough to be unreliable per config.display.minQualityForPrice).
+    // Explicit here so a market card never shows a $0/near-$0 "drop".
+    if (!isPriceReliable(current)) continue;
 
-    const history = compatible.slice(0, -1);
+    const history = compatible.slice(0, -1).filter(isPriceReliable);
     const prev24h = nearestByTime(history, current.snapshotAt - DAY_MS, 6 * HOUR_MS);
     const changePct = prev24h ? pctChange(prev24h.benchmarkPriceMinor, current.benchmarkPriceMinor) : null;
     const changeAbsMinor = prev24h ? current.benchmarkPriceMinor - prev24h.benchmarkPriceMinor : null;
@@ -704,6 +780,57 @@ export function getMarketPulse(): PulseVM {
     dataSourceMode,
     demoMode: dataSourceMode === 'DEMO',
   };
+}
+
+// ---------------------------------------------------------------------------
+// Tracked markets (WP-F1 fix 3)
+// ---------------------------------------------------------------------------
+
+export interface TrackedMarketSummary {
+  origin: string;
+  destination: string;
+  originCity: string;
+  destinationCity: string;
+  /** search_definitions.slug for the FLEXIBLE definition — usable directly
+   * with buildMarketUrl(origin, destination, { mode: 'flexible' }). */
+  slug: string;
+}
+
+/** Active FLEXIBLE-mode definitions, one card per market (a market can have
+ * both a FLEXIBLE and an EXACT definition; FLEXIBLE is the one every market
+ * always has and the one canonical /market/[origin]/[destination] links to
+ * — see resolveDefinition's default). Used by the not-found page (WP-F1 fix
+ * 3) to show what IS tracked instead of leaving "try one of the markets
+ * below" with nothing underneath it. Sorted alphabetically by
+ * origin+destination, capped at `limit`. */
+export function listTrackedMarkets(limit = 12): TrackedMarketSummary[] {
+  const defs = db
+    .select()
+    .from(searchDefinitions)
+    .where(and(eq(searchDefinitions.active, true), eq(searchDefinitions.mode, 'FLEXIBLE')))
+    .all();
+
+  const results: TrackedMarketSummary[] = [];
+  for (const def of defs) {
+    const originScope = db.select().from(marketScopes).where(eq(marketScopes.id, def.originScopeId)).get();
+    const destScope = db.select().from(marketScopes).where(eq(marketScopes.id, def.destinationScopeId)).get();
+    if (!originScope || !destScope) continue;
+
+    const originAirport = db.select().from(airports).where(eq(airports.iataCode, originScope.code)).get();
+    const destAirport = db.select().from(airports).where(eq(airports.iataCode, destScope.code)).get();
+
+    results.push({
+      origin: originScope.code,
+      destination: destScope.code,
+      originCity: originAirport?.cityName ?? originScope.code,
+      destinationCity: destAirport?.cityName ?? destScope.code,
+      slug: def.slug,
+    });
+  }
+
+  return results
+    .sort((a, b) => `${a.origin}${a.destination}`.localeCompare(`${b.origin}${b.destination}`))
+    .slice(0, limit);
 }
 
 // ---------------------------------------------------------------------------

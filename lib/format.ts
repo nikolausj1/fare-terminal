@@ -58,7 +58,15 @@ export function priceChangeVisual(pct: number | null | undefined): {
 }
 
 /** Relative time from `fromMs` to `toMs` (default: now), e.g. "2h ago",
- * "just now", "in 3d". Coarse buckets, not a full i18n relative formatter. */
+ * "just now", "in 3d". Coarse buckets, not a full i18n relative formatter.
+ *
+ * WP-F1 fix 4: 30+ days out, this returns a bare absolute date
+ * ("2026-07-01") with NO "ago"/"in " wrapper. Previously the "day < 30"
+ * bucket check fell through to an absolute-date label for older timestamps
+ * but the trailing `${label} ago` concatenation still applied to it
+ * unconditionally, producing nonsense like "2026-07-01 ago". Past a month,
+ * a specific date is more useful than a relative bucket anyway, and reads
+ * fine on its own without a suffix. */
 export function formatRelativeTime(ms: number, nowMs: number = Date.now()): string {
   const diffMs = nowMs - ms;
   const future = diffMs < 0;
@@ -68,14 +76,14 @@ export function formatRelativeTime(ms: number, nowMs: number = Date.now()): stri
   const hr = Math.round(min / 60);
   const day = Math.round(hr / 24);
 
-  let label: string;
-  if (sec < 45) label = 'just now';
-  else if (min < 60) label = `${min}m`;
-  else if (hr < 24) label = `${hr}h`;
-  else if (day < 30) label = `${day}d`;
-  else label = new Date(ms).toISOString().slice(0, 10);
+  if (sec < 45) return 'just now';
+  if (day >= 30) return new Date(ms).toISOString().slice(0, 10);
 
-  if (label === 'just now') return label;
+  let label: string;
+  if (min < 60) label = `${min}m`;
+  else if (hr < 24) label = `${hr}h`;
+  else label = `${day}d`;
+
   return future ? `in ${label}` : `${label} ago`;
 }
 

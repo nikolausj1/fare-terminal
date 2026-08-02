@@ -97,9 +97,36 @@ export interface MarketSummaryVM {
   /** The dataset anchor (max observed_at across all offer_observations) that
    * `freshness` above is computed relative to. */
   datasetAnchorAt: number;
+  /** False when `snapshot`'s price fields shouldn't be trusted/displayed as
+   * a real price — either the snapshot's dataQualityScore is below
+   * config.display.minQualityForPrice, or benchmarkPriceMinor <= 0 (e.g. a
+   * search run that returned zero valid offers still produces a
+   * structurally-valid-looking $0 snapshot — see
+   * domain/snapshots/computeSnapshotMetrics.ts's zero-valid-offers branch).
+   * The UI should render a "price data unreliable" state instead of the
+   * price/delta when this is false. See lib/markets/queries.ts#getMarketSummary
+   * (WP-F1 fix 1). */
+  priceReliable: boolean;
+  /** Non-null when the caller requested EXACT-date benchmark data but no
+   * matching search_definition existed, so resolution silently served the
+   * FLEXIBLE-window definition instead. The UI should surface this near the
+   * mode toggle rather than let the page look like it's honoring the
+   * request (WP-F1 fix 2). */
+  modeFallback: { requested: 'EXACT'; served: 'FLEXIBLE' } | null;
 }
 
-/** One point in a market's benchmark-price history chart. */
+/** One point in a market's benchmark-price history chart.
+ *
+ * WP-F1 fix 1: points whose price isn't reliable (see
+ * MarketSummaryVM.priceReliable for the exact condition) are dropped from
+ * the array entirely by lib/markets/queries.ts#getMarketHistory, rather
+ * than included with a flag — chosen over marking them because (a) the
+ * chart already renders a visual gap whenever consecutive kept points are
+ * more than 2x the typical interval apart (gapAfter below), so removing an
+ * unreliable point naturally produces that gap with zero component changes,
+ * and (b) it keeps every consumer of this array (chart line, tooltip,
+ * event-marker nearest-point lookup) from having to remember to re-check a
+ * flag before touching benchmarkPriceMinor. */
 export interface HistoryPointVM {
   snapshotAt: number;
   benchmarkPriceMinor: number;

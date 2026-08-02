@@ -45,12 +45,29 @@ import type { DbClient } from '../db';
 const DEFAULT_REAL_DB_PATH = 'data/real.db';
 const FORBIDDEN_PATH_MARKERS = ['fare-terminal.db'];
 
-/** Real-mode tracked markets, chosen by MEASURED Aviasales cache coverage
- * (probed 2026-07-24), not by the demo's scenario needs. The cached Data
- * API is driven by real Aviasales user searches, so coverage is dense on
- * international trunk routes and near-zero on US domestic/secondary
- * leisure routes (ATL-LIS, MSP-CUN, PDX-YVR etc. returned 0-1 offers).
- * Flexible-window definitions only in real mode v1. */
+/** Real-mode tracked markets. The original 10 were chosen by MEASURED
+ * Aviasales cache coverage probed 2026-07-24; expanded to 26 by WP-F2 per
+ * the live re-audit in ../_review/revamp-data-audit.md (probed
+ * 2026-08-02), which re-confirmed cache volatility (coverage swings
+ * week-to-week — don't read a single count as a permanent verdict) and
+ * probed 23 new candidate routes, 16 of which had non-zero coverage that
+ * session. The cached Data API is driven by real Aviasales user searches,
+ * so coverage is dense on international trunk routes and near-zero on US
+ * domestic/secondary leisure routes.
+ *
+ * Roster-size note: the audit recommended a 30-route target (10 kept + 16
+ * added + 4 "backup" candidates). This file intentionally ships only the 26
+ * routes with CONFIRMED non-zero live coverage — the 4 backups (LAX-ICN,
+ * ORD-NRT, SEA-ICN, ORD-FRA) returned 0 offers at round-trip
+ * month-granularity in the audit's probe and were only proposed pending a
+ * one-way retry that wasn't spent this session (budget discipline; see the
+ * audit's §1 one-way-fallback finding). Adding unconfirmed routes on
+ * speculation would just mean bootstrap-real.ts immediately deactivating
+ * them again once ingest finds nothing — not worth the seed noise. See the
+ * WP-F2 final report for the full per-sweep request-budget arithmetic at 26
+ * routes (~103 req/sweep across the ingest + pipeline steps, comfortably
+ * under the ~200/h real ceiling with no TP_MAX_REQUESTS_PER_HOUR change
+ * needed). */
 interface RealMarket {
   id: string;
   origin: string;
@@ -58,18 +75,39 @@ interface RealMarket {
 }
 
 const REAL_MARKETS: readonly RealMarket[] = [
-  // Kept from the demo roster (probed offer counts in comments):
-  { id: 'jfk-lhr', origin: 'JFK', destination: 'LHR' }, // 14
-  { id: 'lax-hnd', origin: 'LAX', destination: 'HND' }, // 24
-  { id: 'ord-cdg', origin: 'ORD', destination: 'CDG' }, // 8
-  { id: 'sfo-bcn', origin: 'SFO', destination: 'BCN' }, // 8
-  { id: 'sea-fco', origin: 'SEA', destination: 'FCO' }, // 2 (thin; kept as flagship example)
-  // Added for coverage:
-  { id: 'jfk-cdg', origin: 'JFK', destination: 'CDG' }, // 14
-  { id: 'lax-nrt', origin: 'LAX', destination: 'NRT' }, // 8
-  { id: 'mia-mad', origin: 'MIA', destination: 'MAD' }, // 4
-  { id: 'ewr-bcn', origin: 'EWR', destination: 'BCN' }, // 4
-  { id: 'iad-lis', origin: 'IAD', destination: 'LIS' }, // 2
+  // Kept from the original 10-route roster (probed offer counts in comments,
+  // 2026-07-24 baseline / 2026-08-02 re-probe where noted — see the audit's
+  // §2 "cache is genuinely volatile day to day" finding):
+  { id: 'jfk-lhr', origin: 'JFK', destination: 'LHR' }, // 14 (2026-07-24) / 9 RT, 22 one-way (2026-08-02)
+  { id: 'lax-hnd', origin: 'LAX', destination: 'HND' }, // 24 (2026-07-24) / 12 (2026-08-02)
+  { id: 'ord-cdg', origin: 'ORD', destination: 'CDG' }, // 8 (2026-07-24) / 1 RT, 2 one-way (2026-08-02)
+  { id: 'sfo-bcn', origin: 'SFO', destination: 'BCN' }, // 8 (2026-07-24)
+  { id: 'sea-fco', origin: 'SEA', destination: 'FCO' }, // 2 (2026-07-24; thin, kept as flagship example)
+  { id: 'jfk-cdg', origin: 'JFK', destination: 'CDG' }, // 14 (2026-07-24)
+  { id: 'lax-nrt', origin: 'LAX', destination: 'NRT' }, // 8 (2026-07-24)
+  { id: 'mia-mad', origin: 'MIA', destination: 'MAD' }, // 4 (2026-07-24)
+  { id: 'ewr-bcn', origin: 'EWR', destination: 'BCN' }, // 4 (2026-07-24)
+  { id: 'iad-lis', origin: 'IAD', destination: 'LIS' }, // 2 (2026-07-24)
+
+  // Added by WP-F2 (2026-08-02 audit probe, round-trip offer counts at
+  // departure_at=2026-09; 16 of 23 new candidates probed had non-zero
+  // coverage — these are all 16):
+  { id: 'jfk-fco', origin: 'JFK', destination: 'FCO' }, // 4
+  { id: 'jfk-mad', origin: 'JFK', destination: 'MAD' }, // 2
+  { id: 'bos-lhr', origin: 'BOS', destination: 'LHR' }, // 2
+  { id: 'ord-lhr', origin: 'ORD', destination: 'LHR' }, // 2
+  { id: 'atl-cdg', origin: 'ATL', destination: 'CDG' }, // 1
+  { id: 'sfo-lhr', origin: 'SFO', destination: 'LHR' }, // 2
+  { id: 'lax-lhr', origin: 'LAX', destination: 'LHR' }, // 10
+  { id: 'sfo-nrt', origin: 'SFO', destination: 'NRT' }, // 3
+  { id: 'jfk-nrt', origin: 'JFK', destination: 'NRT' }, // 8
+  { id: 'mia-gru', origin: 'MIA', destination: 'GRU' }, // 3
+  { id: 'jfk-gru', origin: 'JFK', destination: 'GRU' }, // 1
+  { id: 'lax-mex', origin: 'LAX', destination: 'MEX' }, // 1
+  { id: 'jfk-mex', origin: 'JFK', destination: 'MEX' }, // 2
+  { id: 'mia-lim', origin: 'MIA', destination: 'LIM' }, // 4
+  { id: 'dfw-cun', origin: 'DFW', destination: 'CUN' }, // 3
+  { id: 'jfk-ams', origin: 'JFK', destination: 'AMS' }, // 1
 ];
 
 /** Airports referenced by REAL_MARKETS but absent from the demo AIRPORTS list. */
@@ -88,6 +126,11 @@ const EXTRA_AIRPORTS: readonly {
   { iataCode: 'IAD', name: 'Washington Dulles International', cityName: 'Washington', countryCode: 'US', latitude: 38.9531, longitude: -77.4565, timezone: 'America/New_York' },
   { iataCode: 'MAD', name: 'Adolfo Suarez Madrid-Barajas', cityName: 'Madrid', countryCode: 'ES', latitude: 40.4839, longitude: -3.568, timezone: 'Europe/Madrid' },
   { iataCode: 'NRT', name: 'Narita International', cityName: 'Tokyo', countryCode: 'JP', latitude: 35.7719, longitude: 140.3929, timezone: 'Asia/Tokyo' },
+  // Added by WP-F2 for the 16-route roster expansion:
+  { iataCode: 'GRU', name: 'Sao Paulo-Guarulhos International', cityName: 'Sao Paulo', countryCode: 'BR', latitude: -23.4356, longitude: -46.4731, timezone: 'America/Sao_Paulo' },
+  { iataCode: 'LIM', name: 'Jorge Chavez International', cityName: 'Lima', countryCode: 'PE', latitude: -12.0219, longitude: -77.1143, timezone: 'America/Lima' },
+  { iataCode: 'DFW', name: 'Dallas/Fort Worth International', cityName: 'Dallas', countryCode: 'US', latitude: 32.8998, longitude: -97.0403, timezone: 'America/Chicago' },
+  { iataCode: 'AMS', name: 'Amsterdam Airport Schiphol', cityName: 'Amsterdam', countryCode: 'NL', latitude: 52.3105, longitude: 4.7683, timezone: 'Europe/Amsterdam' },
 ];
 
 const ALL_AIRPORTS = [

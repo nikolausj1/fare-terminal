@@ -1,0 +1,26 @@
+{
+  "success": true,
+  "currency": "usd",
+  "error": "",
+  "data": [
+    {
+      "depart_date": "2026-08-12",
+      "destination": "SKD",
+      "value": 40,
+      "found_at": "2026-08-02T17:52:58"
+    },
+    {
+      "depart_date": "2026-08-13",
+      "origin": "MOW",
+      "value": 0,
+      "found_at": "2026-08-02T17:52:58"
+    },
+    {
+      "depart_date": "2026-08-14",
+      "origin": "LED",
+      "destination": "MOW",
+      "value": "not-a-number",
+      "found_at": "2026-08-02T17:52:58"
+    }
+  ]
+}

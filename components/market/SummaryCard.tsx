@@ -12,7 +12,7 @@ import type { MarketSummaryVM } from '@/lib/markets/view-models';
  * 24h/7d deltas, percentile sentence, fair-value band, and the
  * recommendation. */
 export function SummaryCard({ summary }: { summary: MarketSummaryVM }) {
-  const { snapshot, change, percentile, fairValue, recommendation } = summary;
+  const { snapshot, change, percentile, fairValue, recommendation, priceReliable } = summary;
 
   // MarketSummaryVM.recommendation.summary is always '' — the read layer's
   // rowToRecommendationOutput() never populates it from the stored
@@ -34,25 +34,47 @@ export function SummaryCard({ summary }: { summary: MarketSummaryVM }) {
             <span className="text-xs font-medium uppercase tracking-wide text-[var(--text-secondary)]">
               Current benchmark
             </span>
-            <div className="mt-1 flex flex-wrap items-baseline gap-3">
-              <PriceText minor={snapshot.benchmarkPriceMinor} currency={summary.definition.currency} size="xl" />
-              {change?.pct24h !== null && change?.pct24h !== undefined && (
-                <DeltaTag pct={change.pct24h} favorableWhen="down" />
-              )}
-            </div>
-            <p className="mt-1 text-xs text-[var(--text-tertiary)]">
-              Median of the 5 lowest valid unique offers observed in the current window.
-            </p>
+            {priceReliable ? (
+              <>
+                <div className="mt-1 flex flex-wrap items-baseline gap-3">
+                  <PriceText minor={snapshot.benchmarkPriceMinor} currency={summary.definition.currency} size="xl" />
+                  {change?.pct24h !== null && change?.pct24h !== undefined && (
+                    <DeltaTag pct={change.pct24h} favorableWhen="down" />
+                  )}
+                </div>
+                <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+                  Median of the 5 lowest valid unique offers observed in the current window.
+                </p>
+              </>
+            ) : (
+              // WP-F1 fix 1: the latest snapshot's price/quality is below
+              // config.display.minQualityForPrice (or the benchmark itself
+              // is <= 0) — most commonly a search run that returned zero
+              // valid offers, which otherwise renders as a literal "$0"
+              // benchmark with a false "-100%, great deal" delta. Show the
+              // gap honestly instead of a number that isn't real.
+              <div
+                role="status"
+                className="mt-1 rounded-md border border-[var(--warn)]/40 bg-[var(--warn-bg)] px-3 py-2 text-sm font-medium text-[var(--warn)]"
+              >
+                Price data unreliable — not enough valid offers in the latest observation to compute a trustworthy
+                benchmark.
+              </div>
+            )}
           </div>
 
           <div className="flex flex-wrap gap-6">
             <div>
               <span className="text-xs font-medium uppercase tracking-wide text-[var(--text-secondary)]">From price</span>
               <div className="mt-1">
-                <PriceText minor={snapshot.fromPriceMinor} currency={summary.definition.currency} size="lg" />
+                {priceReliable ? (
+                  <PriceText minor={snapshot.fromPriceMinor} currency={summary.definition.currency} size="lg" />
+                ) : (
+                  <span className="text-sm text-[var(--text-tertiary)]">Unavailable</span>
+                )}
               </div>
             </div>
-            {change?.pct7d !== null && change?.pct7d !== undefined && (
+            {priceReliable && change?.pct7d !== null && change?.pct7d !== undefined && (
               <div>
                 <span className="text-xs font-medium uppercase tracking-wide text-[var(--text-secondary)]">7-day change</span>
                 <div className="mt-1">
@@ -63,9 +85,11 @@ export function SummaryCard({ summary }: { summary: MarketSummaryVM }) {
           </div>
 
           <p className="text-sm text-[var(--text-secondary)]">
-            {percentile !== null
-              ? `Cheaper than ${percentile.toFixed(0)}% of comparable observations.`
-              : 'Not enough compatible history yet for a percentile comparison.'}
+            {!priceReliable
+              ? 'Percentile comparison unavailable while price data is unreliable.'
+              : percentile !== null
+                ? `Cheaper than ${percentile.toFixed(0)}% of comparable observations.`
+                : 'Not enough compatible history yet for a percentile comparison.'}
           </p>
         </div>
 
@@ -74,11 +98,11 @@ export function SummaryCard({ summary }: { summary: MarketSummaryVM }) {
             <span className="mb-2 block text-xs font-medium uppercase tracking-wide text-[var(--text-secondary)]">
               Fair value band
             </span>
-            {fairValue ? (
+            {fairValue && priceReliable ? (
               <FairValueBand range={fairValue} currentMinor={snapshot.benchmarkPriceMinor} currency={summary.definition.currency} />
             ) : (
               <p className="text-sm text-[var(--text-tertiary)]">
-                Fair value range unavailable — not enough compatible history yet.
+                Fair value range unavailable — {!priceReliable ? 'price data is unreliable.' : 'not enough compatible history yet.'}
               </p>
             )}
           </div>

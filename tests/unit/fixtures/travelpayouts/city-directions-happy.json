@@ -1,0 +1,36 @@
+{
+  "success": true,
+  "currency": "usd",
+  "data": {
+    "PAR": {
+      "origin": "NYC",
+      "destination": "PAR",
+      "airline": "DL",
+      "departure_at": "2026-09-10T18:00:00-04:00",
+      "return_at": "2026-09-18T10:00:00+02:00",
+      "expires_at": "2026-08-02T19:39:25Z",
+      "price": 412,
+      "flight_number": 45,
+      "transfers": 0
+    },
+    "LON": {
+      "origin": "NYC",
+      "destination": "LON",
+      "airline": "VS",
+      "departure_at": "2026-09-12T21:00:00-04:00",
+      "return_at": "2026-09-19T12:00:00+01:00",
+      "expires_at": "2026-08-02T19:39:25Z",
+      "price": 389,
+      "flight_number": 4,
+      "transfers": 0
+    },
+    "TOK": {
+      "destination": "TOK",
+      "airline": "JL",
+      "departure_at": "2026-09-15T13:00:00-04:00",
+      "price": "915.75",
+      "flight_number": "5",
+      "transfers": 1
+    }
+  }
+}

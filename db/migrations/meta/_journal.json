@@ -15,6 +15,13 @@
       "when": 1784320896062,
       "tag": "0001_add-recommendation-summary",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1785698755069,
+      "tag": "0002_wp-f2-data-expansion",
+      "breakpoints": true
     }
   ]
 }

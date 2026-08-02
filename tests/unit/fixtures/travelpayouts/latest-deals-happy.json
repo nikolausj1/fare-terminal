@@ -1,0 +1,37 @@
+{
+  "success": true,
+  "currency": "usd",
+  "error": "",
+  "data": [
+    {
+      "depart_date": "2026-08-12",
+      "origin": "TAS",
+      "destination": "SKD",
+      "gate": "Airate",
+      "return_date": "2026-08-13",
+      "found_at": "2026-08-02T17:52:58",
+      "trip_class": 0,
+      "value": 37,
+      "number_of_changes": 0,
+      "duration": 120,
+      "distance": 259,
+      "show_to_affiliates": true,
+      "actual": true
+    },
+    {
+      "depart_date": "2026-08-22",
+      "origin": "IST",
+      "destination": "IZM",
+      "gate": "Kupi.com",
+      "return_date": "",
+      "found_at": "2026-08-02T17:53:14Z",
+      "trip_class": 0,
+      "value": "59.9",
+      "number_of_changes": 0,
+      "duration": 140,
+      "distance": 344,
+      "show_to_affiliates": true,
+      "actual": true
+    }
+  ]
+}

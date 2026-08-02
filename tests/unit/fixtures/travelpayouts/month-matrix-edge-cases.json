@@ -1,0 +1,28 @@
+{
+  "success": true,
+  "currency": "usd",
+  "data": [
+    {
+      "depart_date": "2026-09-05",
+      "value": 199,
+      "number_of_changes": 0
+    },
+    {
+      "depart_date": "2026-09-06",
+      "value": 0,
+      "number_of_changes": 1
+    },
+    {
+      "value": 250,
+      "number_of_changes": 0
+    },
+    {
+      "depart_date": "2026-10-01",
+      "value": 300,
+      "number_of_changes": 1,
+      "found_at": "2026-08-02T18:00:00Z",
+      "gate": "Kupi.com",
+      "actual": true
+    }
+  ]
+}

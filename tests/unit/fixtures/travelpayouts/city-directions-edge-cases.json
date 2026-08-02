@@ -1,0 +1,23 @@
+{
+  "success": true,
+  "currency": "usd",
+  "data": {
+    "MIA": {
+      "destination": "MIA",
+      "airline": "F9",
+      "price": 0,
+      "transfers": 0
+    },
+    "SDQ": {
+      "airline": "B6",
+      "price": 351,
+      "transfers": 1
+    },
+    "": {
+      "destination": "",
+      "airline": "AA",
+      "price": 200,
+      "transfers": 0
+    }
+  }
+}

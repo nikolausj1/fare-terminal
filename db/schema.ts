@@ -3,7 +3,7 @@
 // are text with { mode: 'json' }. See docs/ARCHITECTURE.md for how these
 // tables map to the domain types in domain/types.ts.
 
-import { index, integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { index, integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 export const airports = sqliteTable('airports', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -250,4 +250,116 @@ export const providerHealth = sqliteTable('provider_health', {
   latencyMs: integer('latency_ms').notNull(),
   errorRate: real('error_rate').notNull(),
   detailsJson: text('details_json', { mode: 'json' }).$type<unknown>(),
+});
+
+// ---------------------------------------------------------------------------
+// WP-F2: data-expansion tables (heatmap / related-markets / deals-feed /
+// index-series). See lib/providers/travelpayouts/extras.ts for the adapter
+// methods that populate these and jobs/heatmap.ts, jobs/related.ts,
+// jobs/deals.ts, jobs/index-series.ts for the ingestion jobs. USD-only by
+// design (no currency column) — these are background sweep tables, not
+// per-user-query results; see docs comment in extras.ts for why hardcoding
+// 'usd' is safe here.
+// ---------------------------------------------------------------------------
+
+/** Day-by-day cheapest-price grid from /v2/prices/month-matrix (the P1
+ * date-price heatmap's real data source per _review/revamp-data-audit.md —
+ * NOT /v1/prices/calendar, which offer_observations/searchFlexible already
+ * use for a different purpose). One row per (origin, destination,
+ * depart_date) cell.
+ *
+ * Refresh semantics: "replace per (origin, destination, depart_date)" means
+ * jobs/heatmap.ts UPSERTs on the (origin, destination, depart_date) unique
+ * index below — a re-fetched cell overwrites the prior row in place (same
+ * id, new price/transfers/observed_at) rather than accumulating history.
+ * This table is a current-state cache for the heatmap UI, not a time
+ * series — trend/history for a route lives in market_snapshots via the
+ * existing search_definitions pipeline. Keeping only the newest observation
+ * per cell keeps the table small (roster routes x ~90 days, not x every
+ * sweep ever run) and matches how the UI will always want "the latest known
+ * price for this day", never a per-day history.
+ */
+export const calendarPrices = sqliteTable(
+  'calendar_prices',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    origin: text('origin').notNull(),
+    destination: text('destination').notNull(),
+    departDate: text('depart_date').notNull(), // YYYY-MM-DD
+    priceMinor: integer('price_minor').notNull(),
+    transfers: integer('transfers').notNull(),
+    observedAt: integer('observed_at').notNull(),
+    source: text('source', { enum: ['MONTH_MATRIX'] }).notNull(),
+  },
+  (table) => [
+    // The "replace per cell" unique-ish handling: one row per route/day.
+    uniqueIndex('calendar_prices_cell_idx').on(table.origin, table.destination, table.departDate),
+    index('calendar_prices_route_idx').on(table.origin, table.destination),
+  ]
+);
+
+/** Network-wide "recently spotted deals" feed from /v2/prices/latest
+ * (unfiltered — per the audit, this endpoint is empty when filtered to a
+ * specific origin/destination). Append-only within a 72h retention window;
+ * jobs/deals.ts prunes rows older than that on every sweep (see
+ * config.deals.retentionHours). Unlike calendar_prices, this table is
+ * intentionally a rolling log, not a per-pair latest-only cache — the
+ * "recently spotted" framing is inherently about recency/turnover, and the
+ * source endpoint itself returns a firehose of distinct routes each call,
+ * not a stable per-route cell to overwrite. */
+export const latestDeals = sqliteTable(
+  'latest_deals',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    origin: text('origin').notNull(),
+    destination: text('destination').notNull(),
+    priceMinor: integer('price_minor').notNull(),
+    departDate: text('depart_date'),
+    returnDate: text('return_date'),
+    // The source's own found_at (when Travelpayouts' cache observed this
+    // price) — distinct from observedAt (when THIS adapter retrieved it).
+    foundAt: integer('found_at').notNull(),
+    observedAt: integer('observed_at').notNull(),
+    distanceKm: real('distance_km'),
+  },
+  (table) => [index('latest_deals_found_at_idx').on(table.foundAt)]
+);
+
+/** Destination fares from /v1/city-directions, one row per (origin, dest)
+ * pair, powering the "Related Markets" / destinations-explorer feature.
+ * Kept as its own dedicated table (not folded into latest_deals) because
+ * its refresh semantics match calendar_prices (replace-per-pair, current
+ * state only) rather than latest_deals' append-and-prune log — city
+ * directions is "the cheapest fare we currently know from this origin to
+ * this destination", not a time-ordered feed. No found_at column: this
+ * endpoint's response carries expires_at but not a real cache-observation
+ * timestamp (unlike month-matrix/prices-latest), so observedAt is this
+ * adapter's own retrieval time, same convention as the core provider's
+ * prices_for_dates offers (see mapping.ts's buildOffer doc comment). */
+export const relatedFares = sqliteTable(
+  'related_fares',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    origin: text('origin').notNull(),
+    destination: text('destination').notNull(),
+    priceMinor: integer('price_minor').notNull(),
+    observedAt: integer('observed_at').notNull(),
+    source: text('source', { enum: ['CITY_DIRECTIONS'] }).notNull(),
+  },
+  (table) => [
+    uniqueIndex('related_fares_pair_idx').on(table.origin, table.destination),
+    index('related_fares_origin_idx').on(table.origin),
+  ]
+);
+
+/** Daily Fare Terminal Index value — one row per calendar day, computed
+ * purely from data already in the DB (market_snapshots), no API calls. See
+ * jobs/index-series.ts for the methodology and domain/config.ts#index for
+ * the tunables. Idempotent upsert per indexDate. */
+export const indexValues = sqliteTable('index_values', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  indexDate: text('index_date').notNull().unique(), // YYYY-MM-DD
+  value: real('value').notNull(),
+  routeCount: integer('route_count').notNull(),
+  methodologyVersion: text('methodology_version').notNull(),
 });

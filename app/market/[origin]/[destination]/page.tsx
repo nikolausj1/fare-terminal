@@ -29,13 +29,19 @@ export async function generateMetadata({ params, searchParams }: MarketPageProps
     return { title: 'Market not found', robots: { index: false, follow: false } };
   }
 
-  const { definition, snapshot } = summary;
-  const priceStr = formatPriceMinor(snapshot.benchmarkPriceMinor, definition.currency);
+  const { definition, snapshot, priceReliable } = summary;
+  // WP-F1 fix 1: don't publish an unreliable ($0/near-$0) benchmark into SEO
+  // metadata / social-share previews — those render outside this app's own
+  // "Price data unreliable" UI treatment, so they'd otherwise show a bare
+  // "$0" with no context at all.
+  const priceClause = priceReliable
+    ? `Current benchmark ${formatPriceMinor(snapshot.benchmarkPriceMinor, definition.currency)} for `
+    : 'Market analysis for ';
   const canonicalPath = buildMarketUrl(definition.origin, definition.destination, { mode: 'flexible' });
 
   return {
     title: `${definition.origin}→${definition.destination} flights: market analysis`,
-    description: `Current benchmark ${priceStr} for ${definition.originCity} to ${definition.destinationCity}. ${definition.windowDescription}.`,
+    description: `${priceClause}${definition.originCity} to ${definition.destinationCity}. ${definition.windowDescription}.`,
     alternates: { canonical: canonicalPath },
     // Exact-date variants are near-duplicate content keyed by date; only the
     // flexible-benchmark canonical page is indexable (PRD §27).

@@ -6,7 +6,16 @@ name: Real Data Refresh
 #
 #   DATABASE_PATH=data/real.db npm run bootstrap:real   (idempotent schema/roster upsert)
 #   DATABASE_PATH=data/real.db npm run ingest            (one provider sweep)
-#   DATABASE_PATH=data/real.db npm run pipeline          (derive snapshots/events/recs/notes)
+#   DATABASE_PATH=data/real.db npm run pipeline          (derive snapshots/events/recs/notes,
+#                                                          then WP-F2's heatmap/deals/related/
+#                                                          index-series stages -- see
+#                                                          jobs/pipeline.ts. No separate workflow
+#                                                          step needed for these: they're wired
+#                                                          into the same `npm run pipeline`
+#                                                          invocation below and self-gate on
+#                                                          DATA_PROVIDER=travelpayouts +
+#                                                          TRAVELPAYOUTS_TOKEN, which this step
+#                                                          already sets.)
 #
 # then commits data/real.db back to main ONLY if it actually changed.
 #
@@ -56,6 +65,14 @@ jobs:
           DATABASE_PATH: data/real.db
           DATA_PROVIDER: travelpayouts
 
+      # TP_MAX_REQUESTS_PER_HOUR: WP-F2's 26-route roster measures out to
+      # ~78 req/sweep here (ingest) and ~25 req/sweep in the pipeline step
+      # below (heatmap worst-case bucket + related + deals) -- both already
+      # comfortably under the adapter's default 100/h client-side budget, so
+      # this isn't strictly required at the current roster size. Set to 150
+      # anyway (still well under Travelpayouts' ~200/h real ceiling) as
+      # headroom for roster growth and the searchFlexible one-way fallback,
+      # per _review/revamp-data-audit.md's budget-arithmetic section.
       - name: Ingest one provider sweep
         run: npm run ingest
         env:
@@ -63,7 +80,12 @@ jobs:
           DATA_PROVIDER: travelpayouts
           TRAVELPAYOUTS_TOKEN: ${{ secrets.TRAVELPAYOUTS_TOKEN }}
           TRAVELPAYOUTS_MARKER: ${{ secrets.TRAVELPAYOUTS_MARKER }}
+          TP_MAX_REQUESTS_PER_HOUR: '150'
 
+      # Runs snapshots/events/recommendations/analyst-notes, then (WP-F2)
+      # heatmap/deals/related -- gated on DATA_PROVIDER=travelpayouts +
+      # TRAVELPAYOUTS_TOKEN, both set below -- then index-series (pure DB
+      # compute, no extra env needed). See jobs/pipeline.ts.
       - name: Run derivation pipeline
         run: npm run pipeline
         env:
@@ -71,6 +93,7 @@ jobs:
           DATA_PROVIDER: travelpayouts
           TRAVELPAYOUTS_TOKEN: ${{ secrets.TRAVELPAYOUTS_TOKEN }}
           TRAVELPAYOUTS_MARKER: ${{ secrets.TRAVELPAYOUTS_MARKER }}
+          TP_MAX_REQUESTS_PER_HOUR: '150'
 
       - name: Commit data/real.db if changed
         run: |

@@ -1,0 +1,7 @@
+{
+  "_comment": "Captured live 2026-08-02 against /v2/prices/latest?origin=JFK&destination=LHR&currency=usd&limit=30&sorting=price -- confirms the audit finding that this endpoint returns EMPTY when filtered to a specific origin/destination pair. Kept as the edge-case fixture for the empty-response path.",
+  "currency": "usd",
+  "error": "",
+  "data": [],
+  "success": true
+}

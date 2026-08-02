@@ -15,7 +15,7 @@ export function MarketHeader({
   urlState: MarketUrlState;
   outboundUrl: string | null;
 }) {
-  const { definition, snapshot, freshness, dataSourceMode } = summary;
+  const { definition, snapshot, freshness, dataSourceMode, priceReliable, modeFallback } = summary;
   const isDemo = dataSourceMode === 'DEMO';
   const noLinkTitle = isDemo ? 'Not available in demo' : 'No outbound booking link for this offer';
   const noLinkCaption = isDemo
@@ -36,7 +36,7 @@ export function MarketHeader({
           {definition.origin} <span aria-hidden="true">→</span> {definition.destination}
         </span>
         <span className="num text-sm font-semibold text-[var(--text-primary)]">
-          {formatPriceMinor(snapshot.benchmarkPriceMinor, definition.currency)}
+          {priceReliable ? formatPriceMinor(snapshot.benchmarkPriceMinor, definition.currency) : 'Unreliable'}
         </span>
       </div>
 
@@ -52,7 +52,24 @@ export function MarketHeader({
         </div>
 
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <ModeToggle origin={definition.origin} destination={definition.destination} current={urlState} />
+          <div className="flex flex-col gap-2">
+            <ModeToggle origin={definition.origin} destination={definition.destination} current={urlState} />
+            {/* WP-F1 fix 2: resolveDefinitionDetailed silently substituted
+                the FLEXIBLE-window definition because no EXACT-date
+                search_definition exists for these dates yet. The toggle
+                above still reflects what the user actually asked for
+                (urlState, untouched) — this notice is what explains why the
+                numbers on the page are the flexible benchmark anyway. */}
+            {modeFallback && (
+              <p
+                role="status"
+                className="max-w-sm rounded-md border border-[var(--warn)]/40 bg-[var(--warn-bg)] px-2.5 py-1.5 text-xs text-[var(--warn)]"
+              >
+                No exact-date observations exist for these dates yet — showing the flexible-window market benchmark
+                instead.
+              </p>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             <ShareButton />
             <RefreshButton origin={definition.origin} destination={definition.destination} />

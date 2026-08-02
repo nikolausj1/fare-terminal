@@ -1,0 +1,51 @@
+{
+  "success": true,
+  "currency": "usd",
+  "data": [
+    {
+      "depart_date": "2026-09-01",
+      "origin": "NYC",
+      "destination": "LON",
+      "gate": "Mytrip.com",
+      "return_date": "",
+      "found_at": "2026-08-02T17:50:10Z",
+      "trip_class": 0,
+      "value": 244,
+      "number_of_changes": 1,
+      "duration": 1905,
+      "distance": 5540,
+      "show_to_affiliates": true,
+      "actual": true
+    },
+    {
+      "depart_date": "2026-09-02",
+      "origin": "NYC",
+      "destination": "LON",
+      "gate": "Kiwi.com",
+      "return_date": "",
+      "found_at": "2026-08-02T17:51:10Z",
+      "trip_class": 0,
+      "value": 210,
+      "number_of_changes": 0,
+      "duration": 480,
+      "distance": 5540,
+      "show_to_affiliates": true,
+      "actual": true
+    },
+    {
+      "depart_date": "2026-09-03",
+      "origin": "NYC",
+      "destination": "LON",
+      "gate": "Flightnetwork",
+      "return_date": "",
+      "found_at": "2026-08-02T17:52:10Z",
+      "trip_class": 0,
+      "value": "233.5",
+      "number_of_changes": 2,
+      "duration": 610,
+      "distance": 5540,
+      "show_to_affiliates": true,
+      "actual": false
+    }
+  ]
+}

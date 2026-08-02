@@ -136,6 +136,22 @@ export const config = {
     },
   },
 
+  // WP-F1 fix 1: quality-gates whether a snapshot's price is trustworthy
+  // enough to *display* at all (independent of pulse.minDataQualityScore,
+  // which gates pulse-card eligibility, and recommendationScoring's own
+  // 0.35 floor, which gates recommendation generation). A snapshot derived
+  // from zero valid offers (e.g. the provider returned nothing for that
+  // run) legitimately computes benchmarkPriceMinor: 0 and
+  // dataQualityScore: 0 (see domain/snapshots/computeSnapshotMetrics.ts) —
+  // that 0 is structurally indistinguishable downstream from a real $0
+  // fare unless callers explicitly check it. lib/markets/queries.ts derives
+  // MarketSummaryVM.priceReliable from this threshold (OR'd with a direct
+  // benchmarkPriceMinor <= 0 check, since a lone bad price could sit in an
+  // otherwise-decent-quality snapshot).
+  display: {
+    minQualityForPrice: 0.25,
+  },
+
   // Market-pulse card gates (PRD §13.3): a definition's latest snapshot must
   // clear all of these before it can appear in a "biggest drops" /
   // "newly favorable" pulse card, on top of the freshness
@@ -151,6 +167,54 @@ export const config = {
     // Cap on cards rendered per pulse section (drops / newly favorable /
     // unusual events).
     maxCardsPerSection: 5,
+  },
+
+  // WP-F2: jobs/heatmap.ts (calendar_prices from /v2/prices/month-matrix).
+  heatmap: {
+    // How many calendar months (current + this many ahead) a full refresh
+    // covers for one route — matches _review/revamp-data-audit.md's
+    // "current + next 2 months" heatmap-gappiness verdict (dense near-term,
+    // gappy past ~60 days).
+    monthsAhead: 3,
+    // Roster is split into this many rotating buckets by
+    // jobs/stagger.ts#isInSweepBucket; one bucket refreshes per 6h sweep, so
+    // with 4 buckets and the existing cron (every 6h) every route's heatmap
+    // refreshes ~once per 24h. See jobs/heatmap.ts.
+    staggerBuckets: 4,
+  },
+
+  // WP-F2: jobs/related.ts (related_fares from /v1/city-directions).
+  related: {
+    // Same rotation scheme as heatmap, applied to distinct roster origins
+    // (hubs) instead of routes — see jobs/related.ts.
+    staggerBuckets: 4,
+  },
+
+  // WP-F2: jobs/deals.ts (latest_deals from /v2/prices/latest, unfiltered).
+  deals: {
+    // Requested page size for the /v2/prices/latest call. The endpoint is a
+    // firehose across the whole network, not scoped to the roster, so this
+    // just caps one sweep's ingest volume.
+    fetchLimit: 30,
+    // Rows older than this are pruned every sweep — "recently spotted
+    // deals" is meant to stay a short rolling window, not accumulate
+    // forever.
+    retentionHours: 72,
+  },
+
+  // WP-F2: jobs/index-series.ts (index_values, the Fare Terminal Index —
+  // pure DB compute, no API calls). See that file's module doc comment for
+  // the full formula.
+  index: {
+    methodologyVersion: 'index-v1',
+    // The index only starts (base-100 anchor) once at least this fraction
+    // of the active roster has a compatible-methodology snapshot on a given
+    // day — avoids anchoring the index off a thin, unrepresentative slice
+    // of routes.
+    minRosterCoveragePct: 70,
+    // Each route's "trailing median" denominator in the index formula looks
+    // back this many days.
+    trailingMedianDays: 28,
   },
 } as const;
 

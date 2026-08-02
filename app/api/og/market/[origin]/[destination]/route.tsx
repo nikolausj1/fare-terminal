@@ -10,9 +10,18 @@
 // priceReliable=false (WP-F1's "don't publish a $0 benchmark" gate) or an
 // untracked route both render a neutral fallback card instead of a bare
 // "$0" — never a numeric lie in a social preview.
+//
+// Satori layout notes (learned the hard way — see git history for the
+// broken first pass): Satori does NOT default flexDirection to 'row' the
+// way browsers do for `display:flex` — every single flex container here
+// declares flexDirection explicitly (never omitted), longhand padding
+// (never the `'56px 64px 40px'` shorthand, which Satori mis-applies), and
+// every row that can vary in content length gets `flexWrap: 'nowrap'` plus
+// either a fixed pixel width or `flexShrink: 0` on its fixed-size children
+// so satori can't collapse a sibling to zero width and overlap text.
 
 import { ImageResponse } from 'next/og';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { z } from 'zod';
 
 import { formatAbsoluteDate, formatSignedPct, priceChangeVisual } from '@/lib/format';
@@ -30,22 +39,30 @@ const paramsSchema = z.object({
   destination: z.string().trim().length(3),
 });
 
-const SPARK_W = 1072;
-const SPARK_H = 130;
+const CARD_W = 1200;
+const CARD_H = 630;
+const PAD_X = 64;
+const CONTENT_W = CARD_W - PAD_X * 2; // 1072
+const SPARK_W = CONTENT_W;
+const SPARK_H = 120;
+
+const row: CSSProperties = { display: 'flex', flexDirection: 'row', flexWrap: 'nowrap' };
+const column: CSSProperties = { display: 'flex', flexDirection: 'column' };
 
 function Wordmark() {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+    <div style={{ ...row, height: 34, flexShrink: 0, alignItems: 'center' }}>
       <div
         style={{
-          display: 'flex',
+          ...row,
           width: 14,
           height: 14,
           borderRadius: 3,
           backgroundColor: OG_COLORS.accent,
+          marginRight: 10,
         }}
       />
-      <div style={{ display: 'flex', fontSize: 24, fontWeight: 700, letterSpacing: 2, color: OG_COLORS.textSecondary }}>
+      <div style={{ ...row, fontSize: 24, fontWeight: 700, letterSpacing: 2, color: OG_COLORS.textSecondary }}>
         FARE TERMINAL
       </div>
     </div>
@@ -56,16 +73,20 @@ function Footer({ dateLabel }: { dateLabel: string }) {
   return (
     <div
       style={{
-        display: 'flex',
-        width: '100%',
+        ...row,
+        height: 58,
+        flexShrink: 0,
+        width: CONTENT_W,
         justifyContent: 'space-between',
         alignItems: 'center',
-        borderTop: `1px solid ${OG_COLORS.border}`,
+        borderTopWidth: 1,
+        borderTopStyle: 'solid',
+        borderTopColor: OG_COLORS.border,
         paddingTop: 20,
       }}
     >
-      <div style={{ display: 'flex', fontSize: 20, color: OG_COLORS.textTertiary }}>fare-terminal.vercel.app</div>
-      <div style={{ display: 'flex', fontSize: 20, color: OG_COLORS.textTertiary }}>Cached market data · {dateLabel}</div>
+      <div style={{ ...row, fontSize: 20, color: OG_COLORS.textTertiary }}>fare-terminal.vercel.app</div>
+      <div style={{ ...row, fontSize: 20, color: OG_COLORS.textTertiary }}>Cached market data · {dateLabel}</div>
     </div>
   );
 }
@@ -75,12 +96,14 @@ function baseCard(children: ReactNode) {
     (
       <div
         style={{
-          display: 'flex',
-          flexDirection: 'column',
-          width: '100%',
-          height: '100%',
+          ...column,
+          width: CARD_W,
+          height: CARD_H,
           backgroundColor: OG_COLORS.bg,
-          padding: '56px 64px 40px',
+          paddingTop: 56,
+          paddingBottom: 40,
+          paddingLeft: PAD_X,
+          paddingRight: PAD_X,
           fontFamily: 'sans-serif',
         }}
       >
@@ -96,17 +119,25 @@ function fallbackCard(routeLabel: string, message: string) {
   return baseCard(
     <>
       <Wordmark />
-      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, justifyContent: 'center', gap: 20 }}>
-        <div style={{ display: 'flex', fontSize: 64, fontWeight: 700, color: OG_COLORS.textPrimary }}>{routeLabel}</div>
+      <div style={{ ...column, width: CONTENT_W, flexGrow: 1, minHeight: 0, justifyContent: 'center' }}>
+        <div style={{ ...row, fontSize: 64, fontWeight: 700, color: OG_COLORS.textPrimary, marginBottom: 24 }}>
+          {routeLabel}
+        </div>
         <div
           style={{
-            display: 'flex',
-            fontSize: 30,
+            ...row,
+            fontSize: 28,
+            lineHeight: 1.4,
             color: OG_COLORS.warn,
-            border: `1px solid ${OG_COLORS.warn}`,
+            borderWidth: 1,
+            borderStyle: 'solid',
+            borderColor: OG_COLORS.warn,
             borderRadius: 8,
-            padding: '14px 20px',
-            maxWidth: 900,
+            paddingTop: 14,
+            paddingBottom: 14,
+            paddingLeft: 20,
+            paddingRight: 20,
+            width: 860,
           }}
         >
           {message}
@@ -117,22 +148,25 @@ function fallbackCard(routeLabel: string, message: string) {
   );
 }
 
-function DeltaBlock({ label, pct }: { label: string; pct: number | null }) {
-  if (pct === null) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <div style={{ display: 'flex', fontSize: 20, color: OG_COLORS.textSecondary }}>{label}</div>
-        <div style={{ display: 'flex', fontSize: 32, color: OG_COLORS.textTertiary }}>—</div>
-      </div>
-    );
-  }
+function deltaColor(pct: number | null): string {
+  if (pct === null) return OG_COLORS.textTertiary;
   const visual = priceChangeVisual(pct);
-  const color = visual.colorVar === '--pos' ? OG_COLORS.pos : visual.colorVar === '--neg' ? OG_COLORS.neg : OG_COLORS.textSecondary;
+  if (visual.colorVar === '--pos') return OG_COLORS.pos;
+  if (visual.colorVar === '--neg') return OG_COLORS.neg;
+  return OG_COLORS.textSecondary;
+}
+
+function DeltaBlock({ label, pct }: { label: string; pct: number | null }) {
+  const glyphColor = deltaColor(pct);
+  const glyph = pct === null ? '—' : priceChangeVisual(pct).glyph;
+  const valueText = pct === null ? '' : formatSignedPct(pct);
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <div style={{ display: 'flex', fontSize: 20, color: OG_COLORS.textSecondary }}>{label}</div>
-      <div style={{ display: 'flex', fontSize: 32, fontWeight: 600, color }}>
-        {visual.glyph} {formatSignedPct(pct)}
+    <div style={{ ...column, width: 150, marginRight: 32 }}>
+      <div style={{ ...row, fontSize: 20, color: OG_COLORS.textSecondary, marginBottom: 6 }}>{label}</div>
+      <div style={{ ...row, fontSize: 32, fontWeight: 600, color: glyphColor, alignItems: 'baseline' }}>
+        <span style={{ ...row, marginRight: 6 }}>{glyph}</span>
+        <span style={row}>{valueText}</span>
       </div>
     </div>
   );
@@ -167,34 +201,49 @@ export async function GET(
   const { snapshot, change, percentile, definition } = summary;
   const dateLabel = formatAbsoluteDate(summary.datasetAnchorAt);
   const priceMajor = Math.round(snapshot.benchmarkPriceMinor / 100);
+  const percentileText =
+    percentile !== null
+      ? `Cheaper than ${percentile.toFixed(0)}% of observed history`
+      : `${definition.originCity} to ${definition.destinationCity}`;
 
   return baseCard(
     <>
       <Wordmark />
 
-      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, justifyContent: 'center', gap: 24 }}>
-        <div style={{ display: 'flex', fontSize: 56, fontWeight: 700, color: OG_COLORS.textPrimary }}>{routeLabel}</div>
+      <div style={{ ...column, width: CONTENT_W, flexGrow: 1, minHeight: 0, justifyContent: 'center' }}>
+        <div style={{ ...row, fontSize: 56, fontWeight: 700, color: OG_COLORS.textPrimary, marginBottom: 20 }}>
+          {routeLabel}
+        </div>
 
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 40 }}>
-          <div style={{ display: 'flex', fontSize: 120, fontWeight: 700, color: OG_COLORS.textPrimary, lineHeight: 1 }}>
+        <div style={{ ...row, alignItems: 'flex-end', marginBottom: 16 }}>
+          <div
+            style={{
+              ...row,
+              fontSize: 116,
+              fontWeight: 700,
+              color: OG_COLORS.textPrimary,
+              lineHeight: 1,
+              marginRight: 40,
+            }}
+          >
             ${priceMajor.toLocaleString('en-US')}
           </div>
-          <div style={{ display: 'flex', gap: 32, paddingBottom: 16 }}>
+          <div style={{ ...row, paddingBottom: 14 }}>
             <DeltaBlock label="24H" pct={change?.pct24h ?? null} />
             <DeltaBlock label="7D" pct={change?.pct7d ?? null} />
           </div>
         </div>
 
-        <div style={{ display: 'flex', fontSize: 28, color: OG_COLORS.textSecondary }}>
-          {percentile !== null
-            ? `Cheaper than ${percentile.toFixed(0)}% of observed history`
-            : `${definition.originCity} to ${definition.destinationCity}`}
+        <div style={{ ...row, fontSize: 28, color: OG_COLORS.textSecondary, width: CONTENT_W, marginBottom: 20 }}>
+          {percentileText}
         </div>
 
-        {pathD && (
+        {pathD ? (
           <svg width={SPARK_W} height={SPARK_H} viewBox={`0 0 ${SPARK_W} ${SPARK_H}`} style={{ display: 'flex' }}>
             <path d={pathD} fill="none" stroke={OG_COLORS.accent} strokeWidth={4} />
           </svg>
+        ) : (
+          <div style={{ ...row, height: SPARK_H }} />
         )}
       </div>
 

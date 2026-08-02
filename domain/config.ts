@@ -85,6 +85,10 @@ export const config = {
     // in addition to the % threshold — on small sets (12-35 offers) the
     // percentage alone is noise.
     offerCountChangeAbsMin: 8,
+    // VOLATILITY_SPIKE requires trailing MAD/median dispersion of at least
+    // this % — young, flat histories make MAD ~0, where any move computes
+    // as an infinite deviation ratio.
+    volatilityMadFloorPct: 1,
     // Same-type events within this window coalesce into one episode: the
     // stored event's end time extends instead of a new row being created.
     // A severity escalation breaks through the cooldown as a new event.

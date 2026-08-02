@@ -5,7 +5,9 @@ import {
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceArea,
   ReferenceDot,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -14,7 +16,8 @@ import {
 } from 'recharts';
 
 import { Disclosure } from '@/components/ui/Disclosure';
-import { cn, formatAbsoluteDate, formatAbsoluteTime, formatPriceMinor } from '@/lib/format';
+import { cn, formatAbsoluteDate, formatAbsoluteTime, formatPriceMinor, formatSignedPct } from '@/lib/format';
+import type { FairValueRange } from '@/domain/history';
 import type { HistoryRange } from '@/lib/markets/queries';
 import type { HistoryPointVM, MarketEventVM } from '@/lib/markets/view-models';
 
@@ -61,14 +64,20 @@ function nearestBenchmark(points: HistoryPointVM[], atMs: number): number | null
 
 // Recharts clones/injects active/payload/coordinate/etc. into `content` at
 // render time, which a plain JSX element can't statically satisfy — so the
-// tooltip content is built as a factory closing over `currency` instead of
-// receiving it as a prop (content also accepts a plain render function, per
-// recharts' ContentType).
-function makeTooltipContent(currency: string) {
+// tooltip content is built as a factory closing over `currency`/`fairValue`
+// instead of receiving them as props (content also accepts a plain render
+// function, per recharts' ContentType).
+function makeTooltipContent(currency: string, fairValue: FairValueRange | null) {
   return function CustomTooltip({ active, payload }: TooltipContentProps) {
     if (!active || !payload || payload.length === 0) return null;
     const row = payload[0].payload as ChartRow;
     if (row.benchmark === null) return null;
+    // vs-fair-value delta: benchmark relative to the band's center, not
+    // low/high — a single signed number reads as "how far off the typical
+    // price this point is," matching how FairValueBand's own marker already
+    // frames the current price against `center`.
+    const vsFairValuePct =
+      fairValue && fairValue.center !== 0 ? ((row.benchmark - fairValue.center) / fairValue.center) * 100 : null;
     return (
       <div className="rounded-md border border-[var(--border-strong)] bg-[var(--panel-raised)] px-3 py-2 text-xs shadow-lg">
         <div className="text-[var(--text-tertiary)]">{formatAbsoluteTime(row.x)}</div>
@@ -77,6 +86,11 @@ function makeTooltipContent(currency: string) {
         </div>
         {row.from !== null && (
           <div className="num text-[var(--text-secondary)]">From price: {formatPriceMinor(row.from, currency)}</div>
+        )}
+        {vsFairValuePct !== null && (
+          <div className="num mt-1 text-[var(--text-secondary)]">
+            vs fair value: {formatSignedPct(vsFairValuePct)}
+          </div>
         )}
       </div>
     );
@@ -89,12 +103,17 @@ export function PriceHistoryChart({
   initialPoints,
   events,
   currency,
+  fairValue = null,
 }: {
   origin: string;
   destination: string;
   initialPoints: HistoryPointVM[];
   events: MarketEventVM[];
   currency: string;
+  /** WP-F4 §1: shaded fair-value band drawn behind the benchmark line, full
+   * width of the time axis, with a center reference line. Null renders no
+   * band at all — "when fairValue is null: no band, no lie." */
+  fairValue?: FairValueRange | null;
 }) {
   const [range, setRange] = useState<HistoryRange>('30d');
   const [points, setPoints] = useState<HistoryPointVM[]>(initialPoints);
@@ -153,10 +172,18 @@ export function PriceHistoryChart({
             </button>
           ))}
         </div>
-        <label className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)]">
-          <input type="checkbox" checked={showFromPrice} onChange={(e) => setShowFromPrice(e.target.checked)} />
-          Show from price
-        </label>
+        <div className="flex items-center gap-3">
+          {fairValue && (
+            <span className="hidden items-center gap-1.5 text-xs text-[var(--text-secondary)] sm:inline-flex">
+              <span aria-hidden="true" className="inline-block h-2.5 w-4 rounded-sm bg-[var(--accent)]/20 ring-1 ring-[var(--accent)]/40" />
+              Fair value band
+            </span>
+          )}
+          <label className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)]">
+            <input type="checkbox" checked={showFromPrice} onChange={(e) => setShowFromPrice(e.target.checked)} />
+            Show from price
+          </label>
+        </div>
       </div>
 
       <div className={cn('h-72 w-full transition-opacity', loading && 'opacity-50')} aria-hidden="true">
@@ -177,7 +204,29 @@ export function PriceHistoryChart({
               tick={{ fontSize: 11 }}
               width={70}
             />
-            <Tooltip content={makeTooltipContent(currency)} />
+            <Tooltip content={makeTooltipContent(currency, fairValue)} />
+            {fairValue && domainStart !== undefined && domainEnd !== undefined && (
+              <ReferenceArea
+                x1={domainStart}
+                x2={domainEnd}
+                y1={fairValue.low}
+                y2={fairValue.high}
+                fill="var(--accent)"
+                fillOpacity={0.12}
+                stroke="var(--accent)"
+                strokeOpacity={0.3}
+                ifOverflow="visible"
+              />
+            )}
+            {fairValue && (
+              <ReferenceLine
+                y={fairValue.center}
+                stroke="var(--accent)"
+                strokeOpacity={0.55}
+                strokeDasharray="2 3"
+                ifOverflow="visible"
+              />
+            )}
             {showFromPrice && (
               <Line
                 type="monotone"

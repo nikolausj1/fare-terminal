@@ -5,6 +5,7 @@ import { Panel } from '@/components/ui/Panel';
 import { PriceText } from '@/components/ui/PriceText';
 import { DeltaTag } from '@/components/ui/StatBlock';
 import { FairValueBand } from '@/components/market/FairValueBand';
+import { PercentileStrip } from '@/components/market/PercentileStrip';
 import { ACTION_PHRASE } from '@/domain/analyst/labelPhrases';
 import type { MarketSummaryVM } from '@/lib/markets/view-models';
 
@@ -84,13 +85,16 @@ export function SummaryCard({ summary }: { summary: MarketSummaryVM }) {
             )}
           </div>
 
-          <p className="text-sm text-[var(--text-secondary)]">
-            {!priceReliable
-              ? 'Percentile comparison unavailable while price data is unreliable.'
-              : percentile !== null
-                ? `Cheaper than ${percentile.toFixed(0)}% of comparable observations.`
-                : 'Not enough compatible history yet for a percentile comparison.'}
-          </p>
+          <div>
+            <p className="text-sm text-[var(--text-secondary)]">
+              {!priceReliable
+                ? 'Percentile comparison unavailable while price data is unreliable.'
+                : percentile !== null
+                  ? `Cheaper than ${percentile.toFixed(0)}% of comparable observations.`
+                  : 'Not enough compatible history yet for a percentile comparison.'}
+            </p>
+            {priceReliable && percentile !== null && <PercentileStrip percentile={percentile} />}
+          </div>
         </div>
 
         <div className="flex flex-col gap-4">

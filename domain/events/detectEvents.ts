@@ -171,6 +171,13 @@ function detectVolatilitySpike(input: DetectEventsInput): DetectedEvent[] {
   const prices = history.map((h) => h.benchmarkPriceMinor);
   const med = median(prices);
   const mad = median(prices.map((v) => Math.abs(v - med)));
+
+  // With only days of near-identical history, MAD approaches zero and any
+  // trivial move reads as "deviates far beyond" — require a minimum
+  // dispersion (as a fraction of the median) before a spike is claimable.
+  if (med > 0 && mad / med < config.eventThresholds.volatilityMadFloorPct / 100) {
+    return [];
+  }
   const currency = primaryCurrency(input.currentOffers);
   const threshold = config.eventThresholds.volatilityMadMultiplier;
 

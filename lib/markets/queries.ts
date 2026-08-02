@@ -732,7 +732,13 @@ export function getMarketPulse(): PulseVM {
       c.changeAbsMinor,
       c.percentile,
       c.confidence,
-      c.percentile !== null ? `Cheaper than ${c.percentile.toFixed(0)}% of observed history.` : null
+      c.percentile !== null
+        ? c.percentile >= 99.5
+          ? 'Cheapest level in observed history.'
+          : c.percentile < 1
+            ? 'At the high end of observed history.'
+            : `Cheaper than ${c.percentile.toFixed(0)}% of observed history.`
+        : null
     )
   );
 

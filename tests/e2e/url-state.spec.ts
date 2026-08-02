@@ -27,21 +27,33 @@ test('exact-mode URL state persists across reload', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Exact dates' })).toHaveAttribute('aria-pressed', 'true');
 });
 
-test('Share button copies the canonical URL or shows a Copied confirmation', async ({ page, context, browserName }) => {
+test('Share button opens a popover; Copy link copies the canonical URL or shows a Copied confirmation', async ({
+  page,
+  context,
+  browserName,
+}) => {
   await page.goto(url);
 
   if (browserName === 'chromium') {
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   }
 
-  const shareButton = page.getByRole('button', { name: /^(Share|Copied)$/ });
-  await shareButton.click();
+  // WP-F5: ShareButton is now a menu-button popover (Copy link / Copy
+  // markdown / Download card / Embed data) rather than a single click-to-
+  // copy button — the trigger always reads "Share"; "Copy link" is the item
+  // that preserves the original copy-URL behavior.
+  const shareTrigger = page.getByRole('button', { name: 'Share' });
+  await shareTrigger.click();
+  await expect(page.getByRole('menu', { name: 'Share this market' })).toBeVisible();
 
-  // Either the button flips to its "Copied" confirmation state, or the
+  const copyLinkItem = page.getByRole('menuitem', { name: /^(Copy link|Copied)$/ });
+  await copyLinkItem.click();
+
+  // Either the menu item flips to its "Copied" confirmation state, or the
   // canonical URL actually landed on the clipboard — accept whichever the
   // environment supports rather than coupling the test to one mechanism.
   try {
-    await expect(page.getByRole('button', { name: 'Copied' })).toBeVisible({ timeout: 3000 });
+    await expect(page.getByRole('menuitem', { name: 'Copied' })).toBeVisible({ timeout: 3000 });
   } catch {
     const clipboardText = await page.evaluate(() => navigator.clipboard.readText()).catch(() => null);
     expect(clipboardText).toContain('/market/sea/fco');

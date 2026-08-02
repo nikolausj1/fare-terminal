@@ -125,7 +125,10 @@ describe('detectEvents: NEW_HISTORICAL_LOW', () => {
 });
 
 describe('detectEvents: VOLATILITY_SPIKE', () => {
-  const stableHistory = [30000, 30100, 29900, 30050, 29950].map((p, i) =>
+  // Dispersion ~1.7% MAD/median — above the volatilityMadFloorPct floor
+  // (young flat histories below the floor are deliberately spike-immune;
+  // see the "near-zero dispersion" test below).
+  const stableHistory = [30000, 30600, 29400, 30500, 29500].map((p, i) =>
     snapshot({ benchmarkPriceMinor: p, snapshotAt: NOW - (10 - i) * DAY_MS })
   );
 
@@ -141,6 +144,17 @@ describe('detectEvents: VOLATILITY_SPIKE', () => {
     const current = snapshot({ benchmarkPriceMinor: 30020 });
     const events = detectEvents(
       baseInput({ current, previous: stableHistory[4], history: stableHistory })
+    );
+    expect(events.some((e) => e.eventType === 'VOLATILITY_SPIKE')).toBe(false);
+  });
+
+  it('does NOT fire when trailing dispersion is below the MAD floor (young flat history)', () => {
+    const flatHistory = [30000, 30100, 29900, 30050, 29950].map((p, i) =>
+      snapshot({ benchmarkPriceMinor: p, snapshotAt: NOW - (10 - i) * DAY_MS })
+    );
+    const current = snapshot({ benchmarkPriceMinor: 31000 }); // +3.3% move, but MAD/median ~0.2%
+    const events = detectEvents(
+      baseInput({ current, previous: flatHistory[4], history: flatHistory })
     );
     expect(events.some((e) => e.eventType === 'VOLATILITY_SPIKE')).toBe(false);
   });

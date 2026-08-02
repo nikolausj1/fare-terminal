@@ -1,6 +1,7 @@
 import { FreshnessTag } from '@/components/ui/FreshnessTag';
 import { ModeToggle } from '@/components/market/ModeToggle';
 import { RefreshButton } from '@/components/market/RefreshButton';
+import { SectionNavMobileChips } from '@/components/market/SectionNav';
 import { ShareButton } from '@/components/market/ShareButton';
 import { formatPriceMinor } from '@/lib/format';
 import type { MarketUrlState } from '@/lib/url-state';
@@ -29,7 +30,7 @@ export function MarketHeader({
           text), so tests/e2e/mobile.spec.ts targets it directly. */}
       <div
         data-testid="sticky-summary"
-        className="sticky top-0 z-10 -mx-4 flex items-center justify-between border-b border-[var(--border)] bg-[var(--bg)]/95 px-4 py-2 backdrop-blur sm:-mx-6 sm:px-6 md:hidden"
+        className="sticky top-0 z-10 -mx-4 flex h-11 items-center justify-between border-b border-[var(--border)] bg-[var(--bg)]/95 px-4 backdrop-blur sm:-mx-6 sm:px-6 md:hidden"
       >
 
         <span className="num text-sm font-semibold text-[var(--text-primary)]">
@@ -39,6 +40,11 @@ export function MarketHeader({
           {priceReliable ? formatPriceMinor(snapshot.benchmarkPriceMinor, definition.currency) : 'Unreliable'}
         </span>
       </div>
+      {/* WP-F4 §5: nav chip row stacks directly below the bar above — its
+          `top-11` sticky offset (components/market/SectionNav.tsx) matches
+          that bar's `h-11` here, so the two independently-sticky elements
+          land back to back instead of overlapping. */}
+      <SectionNavMobileChips />
 
       <header className="flex flex-col gap-4">
         <div className="flex flex-col gap-1">

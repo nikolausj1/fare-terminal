@@ -150,6 +150,15 @@ export function SearchBox() {
   const [originCode, setOriginCode] = useState<string | null>(null);
   const [destCode, setDestCode] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // WP-F3 mobile hierarchy fix: below 640px the form starts collapsed to a
+  // single compact "Search routes" row so the Index hero + first mover
+  // cards stay in the first viewport (the old always-expanded two-field
+  // form ate the whole mobile fold). Purely a display toggle driven by CSS
+  // breakpoints (`sm:block` always wins at >=640px, see the form's
+  // className below) — `expanded` only matters below that breakpoint, so
+  // there's no need to detect viewport width in JS / risk an SSR mismatch.
+  const [expanded, setExpanded] = useState(false);
+  const formId = useId();
 
   function swap() {
     setOriginText(destText);
@@ -173,62 +182,91 @@ export function SearchBox() {
   }
 
   return (
-    <form onSubmit={submit} className="rounded-lg border border-[var(--border)] bg-[var(--panel)] p-4 sm:p-5">
-      <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-end">
-        <AirportField
-          label="From"
-          value={originText}
-          placeholder="City or airport code"
-          onChange={(v) => {
-            setOriginText(v);
-            setOriginCode(null);
-          }}
-          onSelect={(r) => {
-            setOriginText(`${r.cityName} (${r.iataCode})`);
-            setOriginCode(r.iataCode);
-          }}
-        />
-        <button
-          type="button"
-          onClick={swap}
-          aria-label="Swap origin and destination"
-          className="mb-0.5 shrink-0 self-center rounded-full border border-[var(--border-strong)] p-2 text-[var(--text-secondary)] hover:text-[var(--accent)] sm:self-end"
-        >
-          <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none">
-            <path
-              d="M6 3L3 6M3 6L6 9M3 6H17M14 17L17 14M17 14L14 11M17 14H3"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--panel)]">
+      <button
+        type="button"
+        aria-expanded={expanded}
+        aria-controls={formId}
+        onClick={() => setExpanded((e) => !e)}
+        className="flex w-full items-center justify-between gap-2 px-4 py-3 text-sm font-medium text-[var(--text-primary)] sm:hidden"
+      >
+        <span className="inline-flex items-center gap-2">
+          <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4 text-[var(--text-secondary)]" fill="none">
+            <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="1.5" />
+            <path d="M17 17L13.5 13.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
           </svg>
-        </button>
-        <AirportField
-          label="To"
-          value={destText}
-          placeholder="City or airport code"
-          onChange={(v) => {
-            setDestText(v);
-            setDestCode(null);
-          }}
-          onSelect={(r) => {
-            setDestText(`${r.cityName} (${r.iataCode})`);
-            setDestCode(r.iataCode);
-          }}
-        />
-        <button
-          type="submit"
-          className="shrink-0 rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+          Search routes
+        </span>
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 20 20"
+          className={cn('h-4 w-4 shrink-0 text-[var(--text-secondary)] transition-transform', expanded && 'rotate-180')}
+          fill="none"
         >
-          View market
-        </button>
-      </div>
-      {error && (
-        <p role="alert" className="mt-2 text-sm text-[var(--neg)]">
-          {error}
-        </p>
-      )}
-    </form>
+          <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      <form
+        id={formId}
+        onSubmit={submit}
+        className={cn('p-4 sm:block sm:p-5', expanded ? 'block' : 'hidden', expanded && 'sm:pt-0')}
+      >
+        <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-end">
+          <AirportField
+            label="From"
+            value={originText}
+            placeholder="City or airport code"
+            onChange={(v) => {
+              setOriginText(v);
+              setOriginCode(null);
+            }}
+            onSelect={(r) => {
+              setOriginText(`${r.cityName} (${r.iataCode})`);
+              setOriginCode(r.iataCode);
+            }}
+          />
+          <button
+            type="button"
+            onClick={swap}
+            aria-label="Swap origin and destination"
+            className="mb-0.5 shrink-0 self-center rounded-full border border-[var(--border-strong)] p-2 text-[var(--text-secondary)] hover:text-[var(--accent)] sm:self-end"
+          >
+            <svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none">
+              <path
+                d="M6 3L3 6M3 6L6 9M3 6H17M14 17L17 14M17 14L14 11M17 14H3"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+          <AirportField
+            label="To"
+            value={destText}
+            placeholder="City or airport code"
+            onChange={(v) => {
+              setDestText(v);
+              setDestCode(null);
+            }}
+            onSelect={(r) => {
+              setDestText(`${r.cityName} (${r.iataCode})`);
+              setDestCode(r.iataCode);
+            }}
+          />
+          <button
+            type="submit"
+            className="shrink-0 rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+          >
+            View market
+          </button>
+        </div>
+        {error && (
+          <p role="alert" className="mt-2 text-sm text-[var(--neg)]">
+            {error}
+          </p>
+        )}
+      </form>
+    </div>
   );
 }

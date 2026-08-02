@@ -193,9 +193,14 @@ export function computeRecommendation(
       summary:
         'There is not enough reliable data yet to make a recommendation for this route.',
       observedFacts: [
-        `Current benchmark is ${fmtMoney(currentBenchmark)}.`,
-        `History length: ${historyLength} snapshot(s).`,
-        `Freshness: ${freshnessSeconds} seconds.`,
+        // A zero/negative benchmark means the snapshot had no valid offers —
+        // stating "$0.00" as a fact reads as a real fare. Say what actually
+        // happened instead.
+        currentBenchmark > 0
+          ? `Current benchmark is ${fmtMoney(currentBenchmark)}.`
+          : 'No valid price observations in the current snapshot.',
+        `Price history covers ${historyLength} day(s) so far.`,
+        `Latest data is ${Math.max(1, Math.round(freshnessSeconds / 60))} minute(s) old.`,
         `Data quality score: ${dataQualityScore.toFixed(2)}.`,
       ],
       inferences: [],

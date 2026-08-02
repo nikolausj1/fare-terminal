@@ -24,15 +24,35 @@ function siteUrl(): string {
   return "http://localhost:3111";
 }
 
+const homeTitle = "Fare Terminal · Airfare market intelligence";
+const homeDescription =
+  "Market-level airfare intelligence built from observed data: benchmark prices, history, events, and recommendations for airport-pair routes.";
+
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl()),
   title: {
     template: "%s · Fare Terminal",
-    default: "Fare Terminal · Airfare market intelligence",
+    default: homeTitle,
   },
-  description:
-    "Market-level airfare intelligence built from observed data: benchmark prices, history, events, and recommendations for airport-pair routes.",
+  description: homeDescription,
   applicationName: "Fare Terminal",
+  // WP-F5: the Fare Terminal Index share card (app/api/og/index/route.tsx)
+  // — index value + 90d sparkline. Per-market pages override this with
+  // their own card via app/market/[origin]/[destination]/page.tsx's
+  // generateMetadata (Next resolves the more specific page's openGraph
+  // over this root layout default).
+  openGraph: {
+    title: homeTitle,
+    description: homeDescription,
+    url: "/",
+    images: [{ url: "/api/og/index", width: 1200, height: 630, alt: "Fare Terminal Index" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: homeTitle,
+    description: homeDescription,
+    images: ["/api/og/index"],
+  },
 };
 
 export default function RootLayout({

@@ -58,6 +58,15 @@ export function deriveEvents(searchDefinitionId?: number): DeriveEventsSummary {
     const compatible: SnapshotRow[] = filterCompatibleSnapshots(
       snapshotRows,
       config.benchmark.methodologyVersion
+    ).filter(
+      // Zero-offer runs legitimately produce benchmark 0 / quality 0
+      // snapshots (see computeSnapshotMetrics). They are non-observations:
+      // comparing against them fabricates events like "new historical low
+      // $0.00 (-100%)". Exclude them from event derivation entirely rather
+      // than letting every detector see a phantom price of $0.
+      (row) =>
+        row.benchmarkPriceMinor > 0 &&
+        row.dataQualityScore >= config.display.minQualityForPrice
     );
 
     const offersByRun = loadOffersGroupedByRunId(def.id);

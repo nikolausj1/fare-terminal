@@ -43,6 +43,13 @@ export function FairValueBand({
         <span className="num text-[var(--text-secondary)]">fair value</span>
         <span className="num">{formatPriceMinor(range.high, currency)}</span>
       </div>
+      {/* WP-F4 §1: visual echo tying this standalone bar to the shaded band
+          drawn on the price chart below, so the two aren't read as
+          unrelated widgets. */}
+      <p className="mt-2 flex items-center gap-1.5 text-xs text-[var(--text-tertiary)]">
+        <span aria-hidden="true" className="inline-block h-2.5 w-4 rounded-sm bg-[var(--accent)]/20 ring-1 ring-[var(--accent)]/40" />
+        Also shaded on the price chart below
+      </p>
     </div>
   );
 }

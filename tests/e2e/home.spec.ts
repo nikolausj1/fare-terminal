@@ -17,10 +17,16 @@ test.describe('home / market pulse', () => {
     expect(text.trim().length).toBeGreaterThan(0);
   });
 
-  test('shows at least 3 drop cards, each linking to a market page', async ({ page }) => {
-    const drops = page.getByRole('region', { name: 'Biggest drops' });
-    await expect(drops).toBeVisible();
-    const cards = drops.getByRole('link');
+  // WP-F3: "Biggest drops" (gated on a 5%+ 24h move, which on real data was
+  // frequently empty — the audit's "no qualifying drops" finding) was
+  // replaced by "Top movers (24h)", an always-ranked-by-|pct24h| list that
+  // is never gated on move size (see lib/markets/movers.ts). Same assertion
+  // intent — at least 3 cards, each a market-page link — against the new
+  // section name.
+  test('shows at least 3 top-mover cards, each linking to a market page', async ({ page }) => {
+    const movers = page.getByRole('region', { name: 'Top movers (24h)' });
+    await expect(movers).toBeVisible();
+    const cards = movers.getByRole('link');
     const count = await cards.count();
     expect(count).toBeGreaterThanOrEqual(3);
 
@@ -29,9 +35,9 @@ test.describe('home / market pulse', () => {
     }
   });
 
-  test('clicking a drop card lands on its market page', async ({ page }) => {
-    const drops = page.getByRole('region', { name: 'Biggest drops' });
-    const firstCard = drops.getByRole('link').first();
+  test('clicking a top-mover card lands on its market page', async ({ page }) => {
+    const movers = page.getByRole('region', { name: 'Top movers (24h)' });
+    const firstCard = movers.getByRole('link').first();
     const href = await firstCard.getAttribute('href');
     expect(href).toBeTruthy();
 

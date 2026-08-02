@@ -108,3 +108,91 @@ summary:focus-visible,
     scroll-behavior: auto !important;
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * WP-F3 motion inventory. Everything here is deliberately restrained
+ * (Bloomberg-terminal, not consumer-app): no parallax, no bouncing, nothing
+ * that moves without a reason. The blanket prefers-reduced-motion rule above
+ * already collapses every animation/transition duration to ~0, so most of
+ * these need no extra reduced-motion handling; the two exceptions
+ * (.deals-track's transform-based scroll, which would otherwise freeze
+ * mid-offset rather than reset, and AnimatedNumber's JS rAF loop, which
+ * isn't a CSS animation at all) are called out explicitly below / in
+ * components/home/AnimatedNumber.tsx.
+ * ------------------------------------------------------------------------- */
+
+/* Freshness pulse dot (components/home/PulseDot.tsx): a subtle "this data is
+ * live-ish" cue, shown only when the underlying data is < 2h old. */
+@keyframes pulse-dot-ring {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.8);
+    opacity: 0;
+  }
+}
+
+.pulse-dot-ring {
+  animation: pulse-dot-ring 2s ease-in-out infinite;
+}
+
+/* Skeleton shimmer (app/loading.tsx): a moving highlight sweep instead of a
+ * flat opacity pulse, so the loading state reads as "actively loading"
+ * rather than "half-rendered". */
+@keyframes skeleton-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.skeleton {
+  background-image: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.04) 25%,
+    rgba(255, 255, 255, 0.1) 37%,
+    rgba(255, 255, 255, 0.04) 63%
+  );
+  background-size: 400% 100%;
+  animation: skeleton-shimmer 1.6s ease-in-out infinite;
+  border-radius: 0.375rem;
+}
+
+/* Deals ticker marquee (components/home/DealsTicker.tsx): scrolls on
+ * desktop/tablet, paused on hover/focus so the links inside stay reachable
+ * with a mouse or keyboard. Mobile renders a separate static stacked list
+ * instead of this track (see DealsTicker's sm:hidden / hidden sm:block
+ * split), so no extra breakpoint handling is needed here. */
+@keyframes deals-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.deals-track {
+  animation: deals-scroll 40s linear infinite;
+}
+
+.deals-viewport:hover .deals-track,
+.deals-viewport:focus-within .deals-track {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The blanket rule above collapses the duration to ~0, which would still
+   * leave the track visually snapped to a mid-scroll transform offset
+   * (whatever frame the near-instant animation landed on) instead of a
+   * clean reset. Explicitly disabling the animation here resets it to its
+   * authored transform: none. */
+  .deals-track {
+    animation: none;
+  }
+}

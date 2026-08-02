@@ -30,7 +30,7 @@ describe('computeRecommendation: INSUFFICIENT_DATA gates', () => {
       baseInput({ historyLength: config.recommendationScoring.minHistoryForRecommendation - 1 })
     );
     expect(result.label).toBe('INSUFFICIENT_DATA');
-    expect(result.limitations.join(' ')).toMatch(/history has only/);
+    expect(result.limitations.join(' ')).toMatch(/price history covers only/);
   });
 
   it('gates on freshnessSeconds beyond staleAfterMinutes', () => {

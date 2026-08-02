@@ -169,7 +169,7 @@ export function computeRecommendation(
   const minHistory = config.recommendationScoring.minHistoryForRecommendation;
   if (historyLength < minHistory) {
     gateFailures.push(
-      `history has only ${historyLength} compatible snapshot(s), fewer than the ${minHistory} required for a recommendation`
+      `price history covers only ${historyLength} day(s) so far, fewer than the ${minHistory} days required for a recommendation`
     );
   }
   const staleAfterSeconds = config.freshness.staleAfterMinutes * 60;

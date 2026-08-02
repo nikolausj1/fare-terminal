@@ -11,9 +11,12 @@ const nextConfig: NextConfig = {
   // default ./data/fare-terminal.db).
   // Keys are route globs; '/**' covers server-rendered pages (home, market
   // pages) as well as API routes — all of them read the DB at request time.
+  // The glob ships whichever DB artifact the deployment uses: the demo
+  // build creates data/fare-terminal.db, a real-data deployment checks in
+  // data/real.db and points DATABASE_PATH at it (see docs/RUNBOOK.md).
   outputFileTracingIncludes: {
-    "/**": ["./data/fare-terminal.db"],
-    "/api/**": ["./data/fare-terminal.db"],
+    "/**": ["./data/*.db"],
+    "/api/**": ["./data/*.db"],
   },
 };
 

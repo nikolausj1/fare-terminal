@@ -41,6 +41,32 @@ test.describe('home / market pulse', () => {
     await expect(emptyCards.first()).toBeVisible();
   });
 
+  // Added 2026-08-13: the pinned strip (components/home/PinnedRoutes.tsx)
+  // renders the owner's 3 main destinations as richer cards at the very top
+  // of the "From Seattle" board, above the first group row.
+  // domain/config.ts#homeBoard.pinned is a fixed 3-code roster, so "3
+  // cards" is a stable assertion (unlike group-row/extras counts, which
+  // are data-dependent).
+  test('shows the pinned routes strip above the first group row, with 3 cards', async ({ page }) => {
+    const board = page.getByRole('region', { name: 'From Seattle' });
+    const pinned = board.getByTestId('pinned-routes');
+    await expect(pinned).toBeVisible();
+
+    const cards = pinned.locator(':scope > div > *');
+    await expect(cards).toHaveCount(3);
+
+    // "Hawaii" is domain/config.ts#homeBoard.groups[0]'s label — the first
+    // group row rendered below the pinned strip. Anchoring on it (rather
+    // than "the first h3 on the board") avoids ambiguity with the pinned
+    // strip's own "Pinned" h3, which is earlier in the DOM by design.
+    const pinnedBox = await pinned.boundingBox();
+    const firstGroupHeading = board.getByRole('heading', { name: 'Hawaii' });
+    const groupBox = await firstGroupHeading.boundingBox();
+    expect(pinnedBox).not.toBeNull();
+    expect(groupBox).not.toBeNull();
+    expect(pinnedBox!.y).toBeLessThan(groupBox!.y);
+  });
+
   test('shows non-empty AI market brief text', async ({ page }) => {
     const brief = page.getByRole('region', { name: 'AI market brief' });
     await expect(brief).toBeVisible();

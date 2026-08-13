@@ -4,6 +4,7 @@ import type { NormalizedSearchQuery } from '@/domain/types';
 
 import {
   mapGoogleFlights,
+  mapPriceInsights,
   QUALITY_FLAG_LIVE_SEARCH_SOURCE,
   QUALITY_FLAG_NAIVE_LOCAL_TIMESTAMPS,
   QUALITY_FLAG_OUTBOUND_ONLY_SEGMENTS,
@@ -117,6 +118,109 @@ describe('mapGoogleFlights — real captured round-trip fixture (SEA-FCO, 2026-0
     const first = mapGoogleFlights(realRoundTripFixture, roundTripQuery(), RETRIEVED_AT);
     const second = mapGoogleFlights(realRoundTripFixture, roundTripQuery(), RETRIEVED_AT + 60_000);
     expect(first.offers[0].providerOfferId).not.toBe(second.offers[0].providerOfferId);
+  });
+});
+
+describe('mapGoogleFlights — price_insights (WP-P5, real captured fixture)', () => {
+  it('maps the full price_insights object: lowest price, price level, typical range, and every history point', () => {
+    const result = mapGoogleFlights(realRoundTripFixture, roundTripQuery(), RETRIEVED_AT);
+    expect(result.priceInsights).toBeDefined();
+    const insights = result.priceInsights!;
+
+    expect(insights.lowestPriceMinor).toBe(69000); // 690 * 100
+    expect(insights.priceLevel).toBe('typical');
+    expect(insights.typicalLowMinor).toBe(57000); // 570 * 100
+    expect(insights.typicalHighMinor).toBe(81000); // 810 * 100
+    expect(insights.history).toHaveLength(61);
+  });
+
+  it('converts each price_history unix-seconds timestamp to a UTC calendar-day date string', () => {
+    const result = mapGoogleFlights(realRoundTripFixture, roundTripQuery(), RETRIEVED_AT);
+    const insights = result.priceInsights!;
+
+    // Fixture's first point is [1781420400, 640] -> 2026-06-14T07:00:00.000Z
+    // -> UTC calendar day "2026-06-14"; last point [1786604400, 690] ->
+    // 2026-08-13T07:00:00.000Z -> "2026-08-13".
+    expect(insights.history[0]).toEqual({ date: '2026-06-14', priceMinor: 64000 });
+    expect(insights.history[insights.history.length - 1]).toEqual({ date: '2026-08-13', priceMinor: 69000 });
+  });
+});
+
+describe('mapPriceInsights — direct unit coverage (present/absent/partial)', () => {
+  it('returns undefined (no warning-worthy failure) when price_insights is entirely absent', () => {
+    const warnings: string[] = [];
+    expect(mapPriceInsights(undefined, warnings)).toBeUndefined();
+    expect(warnings).toEqual([]);
+  });
+
+  it('drops the whole object (with a warning) when lowest_price is missing', () => {
+    const warnings: string[] = [];
+    const result = mapPriceInsights({ price_level: 'typical', typical_price_range: [500, 700] }, warnings);
+    expect(result).toBeUndefined();
+    expect(warnings.some((w) => w.includes('missing/invalid lowest_price'))).toBe(true);
+  });
+
+  it('drops the whole object (with a warning) when price_level is missing', () => {
+    const warnings: string[] = [];
+    const result = mapPriceInsights({ lowest_price: 690, typical_price_range: [500, 700] }, warnings);
+    expect(result).toBeUndefined();
+    expect(warnings.some((w) => w.includes('missing price_level'))).toBe(true);
+  });
+
+  it('yields null typicalLow/HighMinor (not a dropped object) when typical_price_range is entirely absent', () => {
+    const warnings: string[] = [];
+    const result = mapPriceInsights({ lowest_price: 690, price_level: 'typical' }, warnings);
+    expect(result).toEqual({
+      lowestPriceMinor: 69000,
+      priceLevel: 'typical',
+      typicalLowMinor: null,
+      typicalHighMinor: null,
+      history: [],
+    });
+    expect(warnings).toEqual([]);
+  });
+
+  it('yields null typicalLow/HighMinor plus a warning when typical_price_range is present but unparseable', () => {
+    const warnings: string[] = [];
+    const result = mapPriceInsights(
+      { lowest_price: 690, price_level: 'typical', typical_price_range: ['not-a-number'] },
+      warnings
+    );
+    expect(result?.typicalLowMinor).toBeNull();
+    expect(result?.typicalHighMinor).toBeNull();
+    expect(warnings.some((w) => w.includes('typical_price_range present but not a valid'))).toBe(true);
+  });
+
+  it('skips an individual unparseable history point (with a warning) but keeps the rest', () => {
+    const warnings: string[] = [];
+    const result = mapPriceInsights(
+      {
+        lowest_price: 690,
+        price_level: 'typical',
+        price_history: [
+          [1781420400, 640],
+          ['not-a-timestamp', 600],
+          [1781593200, 'not-a-price'],
+          [1781679600, 700],
+        ],
+      },
+      warnings
+    );
+    expect(result?.history).toEqual([
+      { date: '2026-06-14', priceMinor: 64000 },
+      { date: '2026-06-17', priceMinor: 70000 },
+    ]);
+    expect(warnings.filter((w) => w.includes('skipped history point'))).toHaveLength(2);
+  });
+
+  it('mapGoogleFlights never throws when price_insights is present but shaped wrong (zod strips it via mapGoogleFlights\' own safeParse before mapPriceInsights ever sees it)', () => {
+    const result = mapGoogleFlights(
+      { price_insights: { lowest_price: 'not-a-number', price_history: 'nonsense' } },
+      oneWayQuery(),
+      RETRIEVED_AT
+    );
+    expect(result.offers).toEqual([]);
+    expect(result.priceInsights).toBeUndefined();
   });
 });
 

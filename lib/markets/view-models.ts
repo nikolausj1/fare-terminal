@@ -113,6 +113,21 @@ export interface MarketSummaryVM {
    * mode toggle rather than let the page look like it's honoring the
    * request (WP-F1 fix 2). */
   modeFallback: { requested: 'EXACT'; served: 'FLEXIBLE' } | null;
+  /** WP-P5: Google's own price-tracking data for this route (from the
+   * latest route_price_insights row), when both ends of its typical price
+   * range were captured. Null whenever no usable insights exist for this
+   * definition (not on the serpapi roster, not backfilled yet, or the
+   * latest capture had a null typical range) — the UI should render nothing
+   * in that case rather than a partial/misleading line. This is GOOGLE'S
+   * tracking data, never this app's own observation history — every
+   * consumer must label it as such (see components/market's WP-P5 block). */
+  googleInsights: {
+    typicalLowMinor: number;
+    typicalHighMinor: number;
+    lowestPriceMinor: number;
+    priceLevel: string;
+    capturedAt: number;
+  } | null;
 }
 
 /** One point in a market's benchmark-price history chart.

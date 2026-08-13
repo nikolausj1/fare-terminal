@@ -15,6 +15,7 @@
 import type {
   NormalizedOffer,
   NormalizedOfferBatch,
+  NormalizedPriceInsights,
   NormalizedSearchQuery,
   ProviderHealth,
 } from '@/domain/types';
@@ -140,7 +141,7 @@ export function createSerpApiProvider(options: SerpApiProviderOptions = {}): Fli
   async function searchExact(
     query: NormalizedSearchQuery,
     retrievedAt: number
-  ): Promise<{ offers: NormalizedOffer[]; warnings: string[] }> {
+  ): Promise<{ offers: NormalizedOffer[]; warnings: string[]; priceInsights?: NormalizedPriceInsights }> {
     if (!query.departureDate) {
       throw new SerpApiError('INVALID_QUERY', SEARCH_PATH, undefined, 'EXACT search requires query.departureDate.');
     }
@@ -161,7 +162,7 @@ export function createSerpApiProvider(options: SerpApiProviderOptions = {}): Fli
   async function searchFlexible(
     query: NormalizedSearchQuery,
     retrievedAt: number
-  ): Promise<{ offers: NormalizedOffer[]; warnings: string[] }> {
+  ): Promise<{ offers: NormalizedOffer[]; warnings: string[]; priceInsights?: NormalizedPriceInsights }> {
     const { departureDate, returnDate } = pickRepresentativeDates(query, defaultStayMinNights, defaultStayMaxNights);
 
     const json = await getClient().get<unknown>(SEARCH_PATH, {
@@ -180,6 +181,7 @@ export function createSerpApiProvider(options: SerpApiProviderOptions = {}): Fli
           'Treat results as directional, not exhaustive.',
         ...mapped.warnings,
       ],
+      priceInsights: mapped.priceInsights,
     };
   }
 
@@ -188,7 +190,7 @@ export function createSerpApiProvider(options: SerpApiProviderOptions = {}): Fli
 
     async search(query: NormalizedSearchQuery): Promise<NormalizedOfferBatch> {
       const retrievedAt = clock();
-      const { offers, warnings } =
+      const { offers, warnings, priceInsights } =
         query.mode === 'EXACT' ? await searchExact(query, retrievedAt) : await searchFlexible(query, retrievedAt);
 
       return {
@@ -197,6 +199,7 @@ export function createSerpApiProvider(options: SerpApiProviderOptions = {}): Fli
         retrievedAt,
         offers,
         warnings,
+        priceInsights,
       };
     },
 

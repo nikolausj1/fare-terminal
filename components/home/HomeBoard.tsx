@@ -15,10 +15,12 @@
 import Link from 'next/link';
 
 import { AnimatedNumber } from '@/components/home/AnimatedNumber';
+import { PinnedRoutes } from '@/components/home/PinnedRoutes';
 import { Sparkline } from '@/components/charts/Sparkline';
 import { cn, formatPriceMinor, formatRelativeTime, formatSignedPct, priceChangeVisual } from '@/lib/format';
 import { buildMarketUrl } from '@/lib/url-state';
 import type { HomeBoardDestinationVM, HomeBoardGroupVM, HomeBoardVM } from '@/lib/markets/home-board';
+import type { PinnedRouteVM } from '@/lib/markets/pinned';
 
 import { percentileLabel, shouldShowBuildingHistory, shouldShowSparkline } from './homeBoardHelpers';
 
@@ -162,7 +164,7 @@ function HomeBoardExtras({ origin, extras }: { origin: string; extras: HomeBoard
   );
 }
 
-export function HomeBoard({ board }: { board: HomeBoardVM }) {
+export function HomeBoard({ board, pinnedRoutes = [] }: { board: HomeBoardVM; pinnedRoutes?: PinnedRouteVM[] }) {
   return (
     <section aria-labelledby="home-board-heading" className="flex min-w-0 flex-col gap-3 overflow-x-hidden">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -178,6 +180,13 @@ export function HomeBoard({ board }: { board: HomeBoardVM }) {
           {board.updatedAt !== null ? `Updated ${formatRelativeTime(board.updatedAt)}` : 'No data yet'}
         </span>
       </div>
+
+      {/* Pinned strip (added 2026-08-13): the owner's three main
+          destinations, rendered as richer cards ABOVE the group rows below
+          — see components/home/PinnedRoutes.tsx. Purely additive: renders
+          even when `board.groups`/`board.extras` are otherwise empty, and a
+          pinned code still also appears in its normal group row below. */}
+      <PinnedRoutes origin={board.origin} routes={pinnedRoutes} />
 
       {board.groups.length === 0 && board.extras.length === 0 ? (
         <p className="rounded-md border border-dashed border-[var(--border)] px-3 py-6 text-center text-sm text-[var(--text-tertiary)]">

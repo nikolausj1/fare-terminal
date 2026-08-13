@@ -259,6 +259,16 @@ export const config = {
     // returns null below this many observations for a destination — too
     // thin a history to say anything meaningful about "cheap vs. usual".
     minObservationsForPercentile: 10,
+    // The owner's three main destinations, elevated per his request
+    // 2026-08-13. lib/markets/pinned.ts#getPinnedRoutes reads this list to
+    // build a richer pinned strip at the very top of the "From Seattle"
+    // section, fed by these routes' FULL_TRACKING (Google-depth) data
+    // where a reliable snapshot exists, falling back to this same
+    // watch-level city_direction_history feed otherwise. Destination codes
+    // only (home origin is `origin` above); array order is display order.
+    // Pinning is purely additive — these codes stay in their existing
+    // `groups` entry above too (pinned = deep view, groups = broad view).
+    pinned: ['MKE', 'PHX', 'MSP'],
   },
 
   // WP-P3: lib/providers/serpapi/ (Google Flights via SerpApi), routed

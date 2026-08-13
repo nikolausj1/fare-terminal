@@ -29,6 +29,13 @@
       "when": 1786649999000,
       "tag": "0003_wp-p1-home-board",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1786650100000,
+      "tag": "0004_wp-p5-price-insights",
+      "breakpoints": true
     }
   ]
 }

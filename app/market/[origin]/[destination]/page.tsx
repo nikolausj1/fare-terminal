@@ -8,6 +8,7 @@ import { MarketHeader } from '@/components/market/MarketHeader';
 import { RelatedMarkets } from '@/components/market/RelatedMarkets';
 import { SectionNavDesktopTabs } from '@/components/market/SectionNav';
 import { SummaryCard } from '@/components/market/SummaryCard';
+import { GoogleInsightsLine } from '@/components/market/GoogleInsightsLine';
 import { RecommendationPanel } from '@/components/market/RecommendationPanel';
 import { AnalystNotePanel } from '@/components/market/AnalystNotePanel';
 import { WhatChangedPanel } from '@/components/market/WhatChangedPanel';
@@ -106,8 +107,9 @@ export default async function MarketPage({ params, searchParams }: MarketPagePro
           desktop tab strip, sticky under the full header. */}
       <SectionNavDesktopTabs />
 
-      <div id="section-summary" className="scroll-mt-24">
+      <div id="section-summary" className="scroll-mt-24 flex flex-col gap-2">
         <SummaryCard summary={summary} />
+        <GoogleInsightsLine summary={summary} />
       </div>
 
       <div id="section-chart" className="scroll-mt-24">

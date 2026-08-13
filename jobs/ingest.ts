@@ -19,9 +19,10 @@
 import { and, count, eq, gte, inArray, max } from 'drizzle-orm';
 
 import { db } from '@/db';
-import { offerObservations, searchDefinitions, searchRuns } from '@/db/schema';
+import { googlePriceHistory, offerObservations, routePriceInsights, searchDefinitions, searchRuns } from '@/db/schema';
 import { config } from '@/domain/config';
 import { getNow } from '@/lib/demo-time';
+import type { NormalizedPriceInsights } from '@/domain/types';
 import {
   dedupeOffers,
   flagAnomalies,
@@ -78,6 +79,56 @@ function getSerpApiLastRunAt(searchDefinitionId: number): number | undefined {
   return row?.value ?? undefined;
 }
 
+/**
+ * WP-P5: persists one serpapi search's price_insights (Google's own
+ * price-tracking history — see domain/types.ts#NormalizedPriceInsights) into
+ * google_price_history (one UPSERT per day, "keep latest capture" —
+ * matches google_price_history's UNIQUE(search_definition_id, price_date)
+ * in db/schema.ts) plus one new append-only route_price_insights row.
+ *
+ * Exported (not an inline closure in the ingest loop) for two reasons: (1)
+ * it's directly unit/integration-testable against a real temp DB without
+ * needing a live SerpApi response or fetch injection through the module-
+ * level `serpapiProvider` singleton, and (2)
+ * scripts/backfill-price-insights.ts reuses this exact function rather than
+ * re-implementing the upsert — see that script's module comment for why
+ * sharing this code path (not just the general shape) matters for the
+ * backfill.
+ */
+export function persistPriceInsights(
+  searchDefinitionId: number,
+  priceInsights: NormalizedPriceInsights,
+  capturedAt: number
+): { historyPointsUpserted: number } {
+  for (const point of priceInsights.history) {
+    db.insert(googlePriceHistory)
+      .values({
+        searchDefinitionId,
+        priceDate: point.date,
+        priceMinor: point.priceMinor,
+        capturedAt,
+      })
+      .onConflictDoUpdate({
+        target: [googlePriceHistory.searchDefinitionId, googlePriceHistory.priceDate],
+        set: { priceMinor: point.priceMinor, capturedAt },
+      })
+      .run();
+  }
+
+  db.insert(routePriceInsights)
+    .values({
+      searchDefinitionId,
+      capturedAt,
+      priceLevel: priceInsights.priceLevel,
+      typicalLowMinor: priceInsights.typicalLowMinor,
+      typicalHighMinor: priceInsights.typicalHighMinor,
+      lowestPriceMinor: priceInsights.lowestPriceMinor,
+    })
+    .run();
+
+  return { historyPointsUpserted: priceInsights.history.length };
+}
+
 export interface IngestSummary {
   definitionsProcessed: number;
   searchRunsCreated: number;
@@ -94,7 +145,24 @@ export interface IngestSummary {
   serpapiSkippedBudget: { searchDefinitionId: number; reason: string }[];
 }
 
-export async function runIngestion(searchDefinitionIds?: number[]): Promise<IngestSummary> {
+export interface RunIngestionOptions {
+  /** WP-P5 backfill-only escape hatch: when true, the per-definition DAILY
+   * serpapi gate (evaluateSerpApiBudget's "already swept today (UTC)"
+   * check) is bypassed by pretending each definition has no prior run —
+   * scripts/backfill-price-insights.ts needs to search all 8 roster
+   * definitions in one sitting, which the daily gate would otherwise
+   * collapse to 1. The MONTHLY budget gate is NEVER bypassed here — it's
+   * still computed and enforced exactly as normal, so this can't be used to
+   * exceed config.serpapi.monthlySearchBudget. Never set true from
+   * scheduled/production ingestion — only the backfill script's explicit
+   * `--force` flag threads this through (see that script's module comment). */
+  bypassDailyGate?: boolean;
+}
+
+export async function runIngestion(
+  searchDefinitionIds?: number[],
+  options: RunIngestionOptions = {}
+): Promise<IngestSummary> {
   // Unchanged default-provider pick — still used for every definition NOT
   // routed to serpapi. Computed once, exactly like before WP-P3.
   const defaultProvider = getActiveProvider();
@@ -142,7 +210,10 @@ export async function runIngestion(searchDefinitionIds?: number[]): Promise<Inge
       const decision = evaluateSerpApiBudget(
         {
           monthlySearchCount: getSerpApiMonthlySearchCount(checkNow),
-          lastRunAtForDefinition: getSerpApiLastRunAt(def.id),
+          // WP-P5: bypassDailyGate pretends this definition has never run
+          // today — the monthly count above is ALWAYS the real one, so the
+          // monthly gate still applies unchanged. See RunIngestionOptions.
+          lastRunAtForDefinition: options.bypassDailyGate ? undefined : getSerpApiLastRunAt(def.id),
         },
         checkNow,
         { monthlySearchBudget: config.serpapi.monthlySearchBudget, sweepsPerDay: config.serpapi.sweepsPerDay }
@@ -217,6 +288,16 @@ export async function runIngestion(searchDefinitionIds?: number[]): Promise<Inge
 
       for (const batchRows of chunk(rows, CHUNK_SIZE)) {
         db.insert(offerObservations).values(batchRows).run();
+      }
+
+      // WP-P5: only the serpapi path ever populates batch.priceInsights
+      // (see lib/providers/serpapi/index.ts) — every other provider leaves
+      // it undefined, so this is a no-op for the rest of the roster.
+      if (batch.priceInsights) {
+        const { historyPointsUpserted } = persistPriceInsights(def.id, batch.priceInsights, batch.retrievedAt);
+        console.log(
+          `[ingest] search_definitions ${def.id} (${def.slug}): captured ${historyPointsUpserted} Google price_insights history point(s), price_level=${batch.priceInsights.priceLevel}.`
+        );
       }
 
       summary.searchRunsCreated += 1;

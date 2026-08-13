@@ -15,7 +15,7 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 
-import type { Cabin, NormalizedOffer, NormalizedSearchQuery, Segment } from '@/domain/types';
+import type { Cabin, NormalizedOffer, NormalizedPriceInsights, NormalizedSearchQuery, Segment } from '@/domain/types';
 
 // Every offer this adapter produces carries this flag: unlike travelpayouts'
 // cached "cheapest seen" aggregate, SerpApi runs (or very recently ran) an
@@ -52,6 +52,10 @@ export const QUALITY_FLAG_OUTBOUND_ONLY_SEGMENTS = 'OUTBOUND_ONLY_SEGMENTS';
 export interface MappingResult {
   offers: NormalizedOffer[];
   warnings: string[];
+  /** WP-P5: Google's own price-tracking history, when the response carried a
+   * usable price_insights object — see mapPriceInsights below and
+   * NormalizedPriceInsights's doc comment in domain/types.ts. */
+  priceInsights?: NormalizedPriceInsights;
 }
 
 // --- Raw response schemas --------------------------------------------------
@@ -100,10 +104,25 @@ const searchMetadataSchema = z.object({
   google_flights_url: z.string().optional(),
 });
 
+// Loose on purpose, same spirit as the schemas above: every field optional
+// (and the whole object optional at the call site) so a response with no
+// price_insights at all, or one SerpApi/Google trims down over time, maps
+// to `undefined`/partial rather than a hard failure. See
+// QUALITY note in mapPriceInsights below for exactly which combinations of
+// missing fields cause the whole object to be dropped vs. individual
+// fields to go null.
+const priceInsightsSchema = z.object({
+  lowest_price: z.union([z.number(), z.string()]).optional(),
+  price_level: z.string().optional(),
+  typical_price_range: z.array(z.union([z.number(), z.string()])).optional(),
+  price_history: z.array(z.array(z.union([z.number(), z.string()]))).optional(),
+});
+
 export const googleFlightsResponseSchema = z.object({
   search_metadata: searchMetadataSchema.optional(),
   best_flights: z.array(flightOptionSchema).optional(),
   other_flights: z.array(flightOptionSchema).optional(),
+  price_insights: priceInsightsSchema.optional(),
   error: z.string().optional(),
 });
 
@@ -314,6 +333,83 @@ function buildOffer(
   return offer;
 }
 
+/** Converts a price_history unix-SECONDS timestamp to a UTC calendar-day
+ * string (YYYY-MM-DD). Google's price_history points already land on
+ * day boundaries (00:00 UTC in every fixture observed), so this is a
+ * straightforward slice of the ISO string rather than a timezone
+ * negotiation — matches the rest of this adapter's convention of treating
+ * every date-only value as UTC (see parseLocalTimeAsUtcMs's module comment
+ * for the analogous choice on timestamps). */
+function toHistoryDateUtc(unixSeconds: number): string {
+  return new Date(unixSeconds * 1000).toISOString().slice(0, 10);
+}
+
+/**
+ * Maps a raw price_insights object onto NormalizedPriceInsights. Returns
+ * undefined (with a warning) when the object is absent entirely, or when
+ * either of the two fields the contract treats as required —
+ * lowest_price and price_level — is missing/unparseable: there's no honest
+ * partial value for "the tracked low price" or "is this typical", so rather
+ * than fabricate one this drops the whole object, same as buildOffer()
+ * above drops a whole offer when a required leg field is missing.
+ * typical_price_range and price_history are genuinely optional: a missing
+ * or partially-unparseable range yields null low/high (independently), and
+ * unparseable individual history points are skipped (not the whole array).
+ * Never throws — every failure path is a skip + warning push.
+ */
+export function mapPriceInsights(
+  raw: z.infer<typeof priceInsightsSchema> | undefined,
+  warnings: string[]
+): NormalizedPriceInsights | undefined {
+  if (!raw) return undefined;
+
+  const lowestPrice = toPrice(raw.lowest_price);
+  if (lowestPrice === undefined) {
+    warnings.push('price_insights: skipped, missing/invalid lowest_price.');
+    return undefined;
+  }
+  if (!raw.price_level) {
+    warnings.push('price_insights: skipped, missing price_level.');
+    return undefined;
+  }
+
+  let typicalLowMinor: number | null = null;
+  let typicalHighMinor: number | null = null;
+  if (raw.typical_price_range) {
+    const [rawLow, rawHigh] = raw.typical_price_range;
+    const low = toPrice(rawLow);
+    const high = toPrice(rawHigh);
+    if (low !== undefined && high !== undefined) {
+      typicalLowMinor = Math.round(low * 100);
+      typicalHighMinor = Math.round(high * 100);
+    } else {
+      warnings.push(
+        'price_insights: typical_price_range present but not a valid [low, high] numeric pair; typical range omitted.'
+      );
+    }
+  }
+
+  const history: { date: string; priceMinor: number }[] = [];
+  (raw.price_history ?? []).forEach((point, index) => {
+    const [rawTs, rawPrice] = point;
+    const ts = typeof rawTs === 'number' ? rawTs : Number(rawTs);
+    const price = toPrice(rawPrice);
+    if (!Number.isFinite(ts) || price === undefined) {
+      warnings.push(`price_insights: skipped history point ${index}, unparseable [timestamp, price] pair.`);
+      return;
+    }
+    history.push({ date: toHistoryDateUtc(ts), priceMinor: Math.round(price * 100) });
+  });
+
+  return {
+    lowestPriceMinor: Math.round(lowestPrice * 100),
+    priceLevel: raw.price_level,
+    typicalLowMinor,
+    typicalHighMinor,
+    history,
+  };
+}
+
 /**
  * Maps a raw SerpApi google_flights engine response (best_flights +
  * other_flights) onto NormalizedOffer[]. See the module-level quality-flag
@@ -378,5 +474,7 @@ export function mapGoogleFlights(
     warnings.push('google_flights: 0 offers extracted from response.');
   }
 
-  return { offers, warnings };
+  const priceInsights = mapPriceInsights(parsed.data.price_insights, warnings);
+
+  return { offers, warnings, priceInsights };
 }

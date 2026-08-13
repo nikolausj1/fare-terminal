@@ -15,6 +15,7 @@
     "bootstrap:serpapi": "tsx scripts/bootstrap-serpapi.ts",
     "pipeline": "tsx jobs/pipeline.ts",
     "ingest": "tsx jobs/ingest.ts",
+    "backfill:insights": "tsx scripts/backfill-price-insights.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test"

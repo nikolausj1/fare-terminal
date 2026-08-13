@@ -54,6 +54,7 @@ function baseSummary(overrides: Partial<MarketSummaryVM> = {}): MarketSummaryVM 
     datasetAnchorAt: 1_700_000_000_000,
     priceReliable: true,
     modeFallback: null,
+    googleInsights: null,
     ...overrides,
   };
 }

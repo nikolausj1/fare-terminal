@@ -32,6 +32,7 @@ import {
   offerObservations,
   recommendations as recommendationsTable,
   analystNotes,
+  routePriceInsights,
   searchDefinitions,
   searchRuns,
 } from '@/db/schema';
@@ -383,6 +384,27 @@ export function getMarketSummary(
   const ageSeconds = Math.max(0, Math.round((anchor - current.snapshotAt) / 1000));
   const dataSourceMode = getDataSourceMode();
 
+  // WP-P5: latest Google price_insights capture for this definition, if
+  // any — see MarketSummaryVM.googleInsights's doc comment for why both
+  // typical-range ends must be present for this to render as non-null.
+  const insightsRow = db
+    .select()
+    .from(routePriceInsights)
+    .where(eq(routePriceInsights.searchDefinitionId, def.id))
+    .orderBy(desc(routePriceInsights.capturedAt))
+    .limit(1)
+    .get();
+  const googleInsights =
+    insightsRow && insightsRow.typicalLowMinor !== null && insightsRow.typicalHighMinor !== null
+      ? {
+          typicalLowMinor: insightsRow.typicalLowMinor,
+          typicalHighMinor: insightsRow.typicalHighMinor,
+          lowestPriceMinor: insightsRow.lowestPriceMinor,
+          priceLevel: insightsRow.priceLevel,
+          capturedAt: insightsRow.capturedAt,
+        }
+      : null;
+
   return {
     definition: {
       slug: def.slug,
@@ -414,6 +436,7 @@ export function getMarketSummary(
     datasetAnchorAt: anchor,
     priceReliable,
     modeFallback,
+    googleInsights,
   };
 }
 

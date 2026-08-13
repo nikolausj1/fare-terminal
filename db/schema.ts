@@ -393,3 +393,64 @@ export const cityDirectionHistory = sqliteTable(
   },
   (table) => [index('city_direction_history_route_observed_idx').on(table.origin, table.destination, table.observedAt)]
 );
+
+// ---------------------------------------------------------------------------
+// WP-P5: Google's own price-tracking history (price_insights), which rides
+// inside every SerpApi Google Flights response. See
+// lib/providers/serpapi/mapping.ts#mapPriceInsights (raw -> domain) and
+// jobs/ingest.ts's serpapi path (domain -> these tables) for how these get
+// populated, and scripts/backfill-price-insights.ts for the one-time
+// backfill that gives the roster a ~61-day baseline immediately instead of
+// waiting for daily sweeps to accumulate it. Everywhere this data surfaces
+// in the UI it must be labeled as Google's tracking, never as this app's
+// own observation history (see lib/markets/pinned.ts and the market page).
+// ---------------------------------------------------------------------------
+
+/** One (search_definition, calendar day) point from Google's price_history
+ * series. UNIQUE(search_definition_id, price_date): a later sweep/backfill
+ * re-observing the same route re-upserts the same day's price (Google's
+ * tracked value for a given day can itself get revised as it ages inside
+ * the ~61-day window) rather than accumulating duplicate rows — "keep
+ * latest capture" per day, mirroring calendar_prices' per-cell replace
+ * semantics above rather than city_direction_history's append-forever log
+ * (this is Google's own already-deduplicated daily series, not a record of
+ * every time this app happened to observe it). */
+export const googlePriceHistory = sqliteTable(
+  'google_price_history',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    searchDefinitionId: integer('search_definition_id')
+      .notNull()
+      .references(() => searchDefinitions.id),
+    priceDate: text('price_date').notNull(), // YYYY-MM-DD, UTC
+    priceMinor: integer('price_minor').notNull(),
+    capturedAt: integer('captured_at').notNull(),
+  },
+  (table) => [
+    uniqueIndex('google_price_history_def_date_idx').on(table.searchDefinitionId, table.priceDate),
+    index('google_price_history_def_idx').on(table.searchDefinitionId),
+  ]
+);
+
+/** One row per serpapi search_run that carried a price_insights object —
+ * append-only (small: at most one search per definition per day per
+ * config.serpapi.sweepsPerDay), unlike google_price_history's per-day
+ * upsert. Reading layer always wants "the latest captured insights row for
+ * this definition" (see lib/markets/pinned.ts), so append + order-by
+ * captured_at desc is simpler and cheaper than trying to collapse this into
+ * a single current-state row per definition. */
+export const routePriceInsights = sqliteTable(
+  'route_price_insights',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    searchDefinitionId: integer('search_definition_id')
+      .notNull()
+      .references(() => searchDefinitions.id),
+    capturedAt: integer('captured_at').notNull(),
+    priceLevel: text('price_level').notNull(),
+    typicalLowMinor: integer('typical_low_minor'),
+    typicalHighMinor: integer('typical_high_minor'),
+    lowestPriceMinor: integer('lowest_price_minor').notNull(),
+  },
+  (table) => [index('route_price_insights_def_captured_idx').on(table.searchDefinitionId, table.capturedAt)]
+);

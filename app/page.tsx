@@ -16,6 +16,7 @@ import { getLatestDeals } from '@/lib/markets/deals';
 import { getTopMovers } from '@/lib/markets/movers';
 import { getSparklines } from '@/lib/markets/sparklines';
 import { getHomeBoard } from '@/lib/markets/home-board';
+import { getPinnedRoutes } from '@/lib/markets/pinned';
 
 // WP-F3 (extended by WP-P2): home page rebuilt from a mostly-static list
 // into an "alive" market terminal, then again into a personal fare terminal
@@ -35,6 +36,7 @@ import { getHomeBoard } from '@/lib/markets/home-board';
 export default function HomePage() {
   const pulse = getMarketPulse();
   const board = getHomeBoard();
+  const pinnedRoutes = getPinnedRoutes();
   const movers = getTopMovers(6);
   const indexToday = getIndexToday();
   const indexSeries = indexToday ? getIndexSeries(90) : [];
@@ -58,7 +60,7 @@ export default function HomePage() {
         <SearchBox />
       </section>
 
-      <HomeBoard board={board} />
+      <HomeBoard board={board} pinnedRoutes={pinnedRoutes} />
 
       {/* Null-safe: an index with zero data yet (e.g. a brand-new real-data
           deploy before the anchor-day coverage threshold is met) omits the

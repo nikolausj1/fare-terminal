@@ -10,6 +10,37 @@ test.describe('home / market pulse', () => {
     await expect(page.getByText('Synthetic demo data. Not current airfare.')).toBeVisible();
   });
 
+  // WP-P2: this deployment is now a personal fare terminal (home airport
+  // SEA) and the "From Seattle" board is the FIRST content section on the
+  // page, ahead of the network-wide Index hero / Top movers / Deals ticker
+  // sections. Asserts both presence and relative DOM order (not just that
+  // the section exists somewhere on the page).
+  test('shows the "From Seattle" board before the Fare Terminal Index', async ({ page }) => {
+    const board = page.getByRole('region', { name: 'From Seattle' });
+    await expect(board).toBeVisible();
+    await expect(board.getByText('SEA', { exact: true }).first()).toBeVisible();
+
+    const boardBox = await board.boundingBox();
+    const indexHeading = page.getByRole('heading', { name: 'Fare Terminal Index' });
+    const indexBox = await indexHeading.boundingBox();
+    expect(boardBox).not.toBeNull();
+    expect(indexBox).not.toBeNull();
+    expect(boardBox!.y).toBeLessThan(indexBox!.y);
+  });
+
+  // Honesty states (WP-P2): a destination with no cached fare seen yet is
+  // rendered, not hidden — the demo data seeds SBA/STS in exactly that
+  // state under the California group (see lib/markets/home-board.ts /
+  // scripts/bootstrap-real.ts's demo seed).
+  test('renders a "no cached fares seen yet" card for a watch-level destination with no price', async ({ page }) => {
+    const board = page.getByRole('region', { name: 'From Seattle' });
+    const emptyCards = board.getByText('No cached fares seen yet');
+    // At least one such honesty-state card exists somewhere in the board on
+    // demo data; exact count/identity is data-dependent so this only checks
+    // the state is representable and actually renders, not a specific code.
+    await expect(emptyCards.first()).toBeVisible();
+  });
+
   test('shows non-empty AI market brief text', async ({ page }) => {
     const brief = page.getByRole('region', { name: 'AI market brief' });
     await expect(brief).toBeVisible();

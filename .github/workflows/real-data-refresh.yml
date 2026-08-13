@@ -80,6 +80,7 @@ jobs:
           DATA_PROVIDER: travelpayouts
           TRAVELPAYOUTS_TOKEN: ${{ secrets.TRAVELPAYOUTS_TOKEN }}
           TRAVELPAYOUTS_MARKER: ${{ secrets.TRAVELPAYOUTS_MARKER }}
+          SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
           TP_MAX_REQUESTS_PER_HOUR: '150'
 
       # Runs snapshots/events/recommendations/analyst-notes, then (WP-F2)
@@ -93,6 +94,7 @@ jobs:
           DATA_PROVIDER: travelpayouts
           TRAVELPAYOUTS_TOKEN: ${{ secrets.TRAVELPAYOUTS_TOKEN }}
           TRAVELPAYOUTS_MARKER: ${{ secrets.TRAVELPAYOUTS_MARKER }}
+          SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
           TP_MAX_REQUESTS_PER_HOUR: '150'
 
       - name: Commit data/real.db if changed

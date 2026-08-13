@@ -41,33 +41,45 @@ import { resolveFlexibleQuery } from '../db/seed/generate';
 import { AIRPORTS } from '../db/seed/markets';
 import { airports, marketScopes, searchDefinitions } from '../db/schema';
 import type { DbClient } from '../db';
+import { isMainModule } from '../jobs/_shared';
 
 const DEFAULT_REAL_DB_PATH = 'data/real.db';
 const FORBIDDEN_PATH_MARKERS = ['fare-terminal.db'];
 
-/** Real-mode tracked markets. The original 10 were chosen by MEASURED
- * Aviasales cache coverage probed 2026-07-24; expanded to 26 by WP-F2 per
- * the live re-audit in ../_review/revamp-data-audit.md (probed
- * 2026-08-02), which re-confirmed cache volatility (coverage swings
- * week-to-week — don't read a single count as a permanent verdict) and
- * probed 23 new candidate routes, 16 of which had non-zero coverage that
- * session. The cached Data API is driven by real Aviasales user searches,
- * so coverage is dense on international trunk routes and near-zero on US
- * domestic/secondary leisure routes.
+/** Real-mode tracked markets. WP-P1 REFOCUS (2026-08-13): the site is being
+ * repurposed as the owner's personal fare terminal (home airport SEA), so
+ * the roster is deliberately shrunk and re-centered from WP-F2's 26 generic
+ * trunk-route markets down to 18 — the routes he actually cares about
+ * ("PERSONAL") plus a small kept set for index/movers stability
+ * ("BENCHMARK"). Everything from the old 26-route roster not listed below
+ * is deactivated by this file's existing idempotent deactivation pass
+ * (history is preserved, just stops consuming ingest budget).
  *
- * Roster-size note: the audit recommended a 30-route target (10 kept + 16
- * added + 4 "backup" candidates). This file intentionally ships only the 26
- * routes with CONFIRMED non-zero live coverage — the 4 backups (LAX-ICN,
- * ORD-NRT, SEA-ICN, ORD-FRA) returned 0 offers at round-trip
- * month-granularity in the audit's probe and were only proposed pending a
- * one-way retry that wasn't spent this session (budget discipline; see the
- * audit's §1 one-way-fallback finding). Adding unconfirmed routes on
- * speculation would just mean bootstrap-real.ts immediately deactivating
- * them again once ingest finds nothing — not worth the seed noise. See the
- * WP-F2 final report for the full per-sweep request-budget arithmetic at 26
- * routes (~103 req/sweep across the ingest + pipeline steps, comfortably
- * under the ~200/h real ceiling with no TP_MAX_REQUESTS_PER_HOUR change
- * needed). */
+ * PERSONAL coverage was measured via a single live /v1/city-directions
+ * probe against origin=SEA on 2026-08-02 (see the WP-P1 brief's measured
+ * facts) — that endpoint returned 30 destinations from ONE request,
+ * including MSP $284, PHX $290, HNL $405, LIH $456, SFO $200, SJC $246; it
+ * is the only free source with any coverage for most of these personal
+ * routes. Per-route prices_for_dates/calendar OFFER counts (the deeper,
+ * per-itinerary data these search_definitions rows actually track) were
+ * separately probed the same session: SFO 8, SJC 2, OAK 1, VCE 2, MXP 1,
+ * MKE 1, MCO 1, KOA 1, HNL 1 (all thin but non-zero — kept because they're
+ * personally relevant, not because the offer coverage is dense); FCO is
+ * kept from the original roster (2 offers, 2026-07-24) both for its
+ * existing history and because Italy is a market he cares about. MSP, PHX,
+ * TUS, FCO's Italy siblings (MXP/VCE, already listed), CDG, NCE, OGG, LIH,
+ * SBA, STS measured 0 prices_for_dates/calendar offers this session — those
+ * are NOT in REAL_MARKETS (no full-tracking search_definitions row would
+ * ever get real observations), but their airports/market_scopes ARE
+ * pre-created below so P3's SerpApi definitions (sea-cdg, sea-ogg, sea-lih,
+ * sea-phx, sea-msp, sea-tus) and the "From Seattle" home board (which reads
+ * city-directions, not prices_for_dates, and DOES have coverage for these)
+ * have scopes to attach to.
+ *
+ * BENCHMARK routes are unchanged from WP-F2's roster, kept purely to give
+ * the Fare Terminal Index (jobs/index-series.ts) and any cross-route movers
+ * view a stable, internationally-diverse comparison set independent of the
+ * personal roster's volatility. */
 interface RealMarket {
   id: string;
   origin: string;
@@ -75,40 +87,43 @@ interface RealMarket {
 }
 
 const REAL_MARKETS: readonly RealMarket[] = [
-  // Kept from the original 10-route roster (probed offer counts in comments,
-  // 2026-07-24 baseline / 2026-08-02 re-probe where noted — see the audit's
-  // §2 "cache is genuinely volatile day to day" finding):
+  // --- PERSONAL: full-tracking routes from SEA, the owner's home airport.
+  // Offer counts are prices_for_dates/calendar counts probed 2026-08-02
+  // (round-trip, departure_at=2026-09) unless noted otherwise. ---
+  { id: 'sea-sfo', origin: 'SEA', destination: 'SFO' }, // 8
+  { id: 'sea-sjc', origin: 'SEA', destination: 'SJC' }, // 2
+  { id: 'sea-oak', origin: 'SEA', destination: 'OAK' }, // 1
+  { id: 'sea-vce', origin: 'SEA', destination: 'VCE' }, // 2
+  { id: 'sea-mxp', origin: 'SEA', destination: 'MXP' }, // 1
+  { id: 'sea-mke', origin: 'SEA', destination: 'MKE' }, // 1
+  { id: 'sea-mco', origin: 'SEA', destination: 'MCO' }, // 1
+  { id: 'sea-koa', origin: 'SEA', destination: 'KOA' }, // 1
+  { id: 'sea-hnl', origin: 'SEA', destination: 'HNL' }, // 1
+  { id: 'sea-fco', origin: 'SEA', destination: 'FCO' }, // 2 (2026-07-24; kept — existing history + Italy)
+  { id: 'sea-iah', origin: 'SEA', destination: 'IAH' }, // 1 (2026-08-13)
+
+  // --- BENCHMARK: kept for Fare Terminal Index / movers stability, unchanged
+  // from the WP-F2 roster (probed offer counts in comments below). ---
   { id: 'jfk-lhr', origin: 'JFK', destination: 'LHR' }, // 14 (2026-07-24) / 9 RT, 22 one-way (2026-08-02)
   { id: 'lax-hnd', origin: 'LAX', destination: 'HND' }, // 24 (2026-07-24) / 12 (2026-08-02)
-  { id: 'ord-cdg', origin: 'ORD', destination: 'CDG' }, // 8 (2026-07-24) / 1 RT, 2 one-way (2026-08-02)
-  { id: 'sfo-bcn', origin: 'SFO', destination: 'BCN' }, // 8 (2026-07-24)
-  { id: 'sea-fco', origin: 'SEA', destination: 'FCO' }, // 2 (2026-07-24; thin, kept as flagship example)
   { id: 'jfk-cdg', origin: 'JFK', destination: 'CDG' }, // 14 (2026-07-24)
   { id: 'lax-nrt', origin: 'LAX', destination: 'NRT' }, // 8 (2026-07-24)
+  { id: 'ord-cdg', origin: 'ORD', destination: 'CDG' }, // 8 (2026-07-24) / 1 RT, 2 one-way (2026-08-02)
+  { id: 'sfo-bcn', origin: 'SFO', destination: 'BCN' }, // 8 (2026-07-24)
   { id: 'mia-mad', origin: 'MIA', destination: 'MAD' }, // 4 (2026-07-24)
   { id: 'ewr-bcn', origin: 'EWR', destination: 'BCN' }, // 4 (2026-07-24)
-  { id: 'iad-lis', origin: 'IAD', destination: 'LIS' }, // 2 (2026-07-24)
-
-  // Added by WP-F2 (2026-08-02 audit probe, round-trip offer counts at
-  // departure_at=2026-09; 16 of 23 new candidates probed had non-zero
-  // coverage — these are all 16):
-  { id: 'jfk-fco', origin: 'JFK', destination: 'FCO' }, // 4
-  { id: 'jfk-mad', origin: 'JFK', destination: 'MAD' }, // 2
-  { id: 'bos-lhr', origin: 'BOS', destination: 'LHR' }, // 2
-  { id: 'ord-lhr', origin: 'ORD', destination: 'LHR' }, // 2
-  { id: 'atl-cdg', origin: 'ATL', destination: 'CDG' }, // 1
-  { id: 'sfo-lhr', origin: 'SFO', destination: 'LHR' }, // 2
-  { id: 'lax-lhr', origin: 'LAX', destination: 'LHR' }, // 10
-  { id: 'sfo-nrt', origin: 'SFO', destination: 'NRT' }, // 3
-  { id: 'jfk-nrt', origin: 'JFK', destination: 'NRT' }, // 8
-  { id: 'mia-gru', origin: 'MIA', destination: 'GRU' }, // 3
-  { id: 'jfk-gru', origin: 'JFK', destination: 'GRU' }, // 1
-  { id: 'lax-mex', origin: 'LAX', destination: 'MEX' }, // 1
-  { id: 'jfk-mex', origin: 'JFK', destination: 'MEX' }, // 2
-  { id: 'mia-lim', origin: 'MIA', destination: 'LIM' }, // 4
-  { id: 'dfw-cun', origin: 'DFW', destination: 'CUN' }, // 3
-  { id: 'jfk-ams', origin: 'JFK', destination: 'AMS' }, // 1
 ];
+
+// Budget check (per sweep, TP_MAX_REQUESTS_PER_HOUR ceiling ~150-200/h in
+// production — see .github/workflows/real-data-refresh.yml): 19 active
+// routes (18 + sea-iah, added 2026-08-13) x <=3 requests/route (ingest's
+// prices_for_dates fan-out) + heatmap <=24 (config.heatmap.monthsAhead x
+// the current stagger bucket's share of 19 routes, worst case +3 vs. the
+// 18-route figure) + related <=3 (one city-directions call per distinct
+// roster origin's stagger bucket) + deals 1 (unfiltered /v2/prices/latest)
+// + home-board 1 (WP-P1's unconditional single city-directions call
+// against SEA) ~= <=83/sweep. Comfortably under budget with no
+// TP_MAX_REQUESTS_PER_HOUR change needed.
 
 /** Airports referenced by REAL_MARKETS but absent from the demo AIRPORTS list. */
 const EXTRA_AIRPORTS: readonly {
@@ -126,11 +141,46 @@ const EXTRA_AIRPORTS: readonly {
   { iataCode: 'IAD', name: 'Washington Dulles International', cityName: 'Washington', countryCode: 'US', latitude: 38.9531, longitude: -77.4565, timezone: 'America/New_York' },
   { iataCode: 'MAD', name: 'Adolfo Suarez Madrid-Barajas', cityName: 'Madrid', countryCode: 'ES', latitude: 40.4839, longitude: -3.568, timezone: 'Europe/Madrid' },
   { iataCode: 'NRT', name: 'Narita International', cityName: 'Tokyo', countryCode: 'JP', latitude: 35.7719, longitude: 140.3929, timezone: 'Asia/Tokyo' },
-  // Added by WP-F2 for the 16-route roster expansion:
+  // Added by WP-F2 for the 16-route roster expansion (kept even though
+  // WP-P1 dropped the routes that referenced them, so any pre-existing
+  // history rows for those routes keep a resolvable airport/scope):
   { iataCode: 'GRU', name: 'Sao Paulo-Guarulhos International', cityName: 'Sao Paulo', countryCode: 'BR', latitude: -23.4356, longitude: -46.4731, timezone: 'America/Sao_Paulo' },
   { iataCode: 'LIM', name: 'Jorge Chavez International', cityName: 'Lima', countryCode: 'PE', latitude: -12.0219, longitude: -77.1143, timezone: 'America/Lima' },
   { iataCode: 'DFW', name: 'Dallas/Fort Worth International', cityName: 'Dallas', countryCode: 'US', latitude: 32.8998, longitude: -97.0403, timezone: 'America/Chicago' },
   { iataCode: 'AMS', name: 'Amsterdam Airport Schiphol', cityName: 'Amsterdam', countryCode: 'NL', latitude: 52.3105, longitude: 4.7683, timezone: 'Europe/Amsterdam' },
+
+  // Added by WP-P1 for the "From Seattle" personal roster + home-board
+  // groups (domain/config.ts#homeBoard). Every code referenced by
+  // REAL_MARKETS' PERSONAL routes AND every homeBoard group code gets an
+  // airport + AIRPORT market_scope here, even the ones with zero
+  // prices_for_dates/calendar offer coverage (PHX/MSP/TUS/OGG/LIH/SBA/STS/
+  // NCE — see the REAL_MARKETS doc comment) — those still need scopes for
+  // P3's future SerpApi definitions and so the home board (a
+  // city-directions read, which HAS coverage for them) can resolve a
+  // cityName and a potential trackedRouteSlug lookup without throwing.
+  { iataCode: 'SJC', name: 'Norman Y. Mineta San Jose International', cityName: 'San Jose', countryCode: 'US', latitude: 37.3639, longitude: -121.9289, timezone: 'America/Los_Angeles' },
+  { iataCode: 'OAK', name: 'Oakland International', cityName: 'Oakland', countryCode: 'US', latitude: 37.7126, longitude: -122.2197, timezone: 'America/Los_Angeles' },
+  { iataCode: 'MKE', name: 'Milwaukee Mitchell International', cityName: 'Milwaukee', countryCode: 'US', latitude: 42.9472, longitude: -87.8966, timezone: 'America/Chicago' },
+  { iataCode: 'KOA', name: 'Ellison Onizuka Kona International', cityName: 'Kailua-Kona', countryCode: 'US', latitude: 19.7388, longitude: -156.0456, timezone: 'Pacific/Honolulu' },
+  { iataCode: 'OGG', name: 'Kahului Airport', cityName: 'Kahului', countryCode: 'US', latitude: 20.8986, longitude: -156.4305, timezone: 'Pacific/Honolulu' },
+  { iataCode: 'LIH', name: 'Lihue Airport', cityName: 'Lihue', countryCode: 'US', latitude: 21.976, longitude: -159.339, timezone: 'Pacific/Honolulu' },
+  { iataCode: 'TUS', name: 'Tucson International', cityName: 'Tucson', countryCode: 'US', latitude: 32.1161, longitude: -110.941, timezone: 'America/Phoenix' },
+  { iataCode: 'SBA', name: 'Santa Barbara Municipal', cityName: 'Santa Barbara', countryCode: 'US', latitude: 34.4262, longitude: -119.8415, timezone: 'America/Los_Angeles' },
+  { iataCode: 'STS', name: 'Charles M. Schulz Sonoma County', cityName: 'Santa Rosa', countryCode: 'US', latitude: 38.5091, longitude: -122.8134, timezone: 'America/Los_Angeles' },
+  { iataCode: 'SAN', name: 'San Diego International', cityName: 'San Diego', countryCode: 'US', latitude: 32.7338, longitude: -117.1933, timezone: 'America/Los_Angeles' },
+  { iataCode: 'NCE', name: "Nice Cote d'Azur", cityName: 'Nice', countryCode: 'FR', latitude: 43.6584, longitude: 7.2159, timezone: 'Europe/Paris' },
+  { iataCode: 'PHX', name: 'Phoenix Sky Harbor International', cityName: 'Phoenix', countryCode: 'US', latitude: 33.4373, longitude: -112.0078, timezone: 'America/Phoenix' },
+  { iataCode: 'VCE', name: 'Venice Marco Polo', cityName: 'Venice', countryCode: 'IT', latitude: 45.5053, longitude: 12.3519, timezone: 'Europe/Rome' },
+  { iataCode: 'MXP', name: 'Milan Malpensa', cityName: 'Milan', countryCode: 'IT', latitude: 45.6306, longitude: 8.7281, timezone: 'Europe/Rome' },
+  { iataCode: 'MCO', name: 'Orlando International', cityName: 'Orlando', countryCode: 'US', latitude: 28.4312, longitude: -81.3081, timezone: 'America/New_York' },
+  { iataCode: 'HNL', name: 'Daniel K. Inouye International', cityName: 'Honolulu', countryCode: 'US', latitude: 21.3245, longitude: -157.9251, timezone: 'Pacific/Honolulu' },
+
+  // Added 2026-08-13 for the homeBoard.groups 'texas' group + sea-iah
+  // (PERSONAL, 1 offer probed 2026-08-13). DFW already exists above (added
+  // by WP-F2); HOU is watch-level only (no REAL_MARKETS row) but still
+  // needs an airport/scope so the home board can resolve it.
+  { iataCode: 'IAH', name: 'George Bush Intercontinental', cityName: 'Houston', countryCode: 'US', latitude: 29.9902, longitude: -95.3368, timezone: 'America/Chicago' },
+  { iataCode: 'HOU', name: 'William P. Hobby', cityName: 'Houston', countryCode: 'US', latitude: 29.6454, longitude: -95.2789, timezone: 'America/Chicago' },
 ];
 
 const ALL_AIRPORTS = [
@@ -337,7 +387,11 @@ function insertDefinitionsIdempotent(
   return definitions;
 }
 
-function runBootstrap(db: DbClient, resolveDatabasePath: () => string, sqlite: { close: () => void }) {
+// Exported (only for tests — see tests/integration/wp-p1.test.ts) so the
+// roster-deactivation behavior can be exercised directly against a temp DB
+// via the real REAL_MARKETS roster, without going through main()'s
+// CLI-only env/argv plumbing.
+export function runBootstrap(db: DbClient, resolveDatabasePath: () => string, sqlite: { close: () => void }) {
   const start = Date.now();
   const dbPath = resolveDatabasePath();
   console.log(`[bootstrap-real] Target database: ${dbPath}`);
@@ -372,11 +426,29 @@ function runBootstrap(db: DbClient, resolveDatabasePath: () => string, sqlite: {
   // routes with no Aviasales coverage, or retired exact-date definitions):
   // ingest only sweeps active definitions, so this is what actually stops
   // wasting API budget on dead routes. History rows are preserved.
+  //
+  // IMPORTANT: this must also spare config.serpapi.routes — WP-P3's
+  // SerpApi-only personal routes (sea-cdg, sea-ogg, sea-lih, sea-phx,
+  // sea-msp, sea-nce, ...) are tracked via a completely separate mechanism
+  // (bootstrap-serpapi.ts creates their search_definitions rows; jobs/
+  // ingest.ts routes them to serpapiProvider per-definition, NOT via
+  // REAL_MARKETS/DATA_PROVIDER — see domain/config.ts#serpapi's doc
+  // comment). Those routes are deliberately absent from REAL_MARKETS
+  // (travelpayouts has ~0 coverage for them), so without this exclusion
+  // every re-run of bootstrap:real would deactivate P3's routes out from
+  // under it. A route's "${id}" is its slug with the trailing
+  // "-flex-v1"/"-exact-v1" suffix stripped (bootstrap-serpapi.ts's slug
+  // convention, matching REAL_MARKETS' own `${id}-flex-v1` convention here).
   const rosterSlugs = new Set(definitions.map((d) => d.slug));
+  const serpapiRouteIds = new Set<string>(config.serpapi.routes);
+  function isSerpapiRouteSlug(slug: string): boolean {
+    const routeId = slug.replace(/-(flex|exact)-v\d+$/, '');
+    return serpapiRouteIds.has(routeId);
+  }
   const allDefs = db.select().from(searchDefinitions).all();
   let deactivated = 0;
   for (const def of allDefs) {
-    if (!rosterSlugs.has(def.slug) && def.active) {
+    if (!rosterSlugs.has(def.slug) && def.active && !isSerpapiRouteSlug(def.slug)) {
       db.update(searchDefinitions).set({ active: false }).where(eq(searchDefinitions.id, def.id)).run();
       deactivated += 1;
       console.log(`  [deactivated] ${def.slug} (not in real roster)`);
@@ -395,7 +467,16 @@ function runBootstrap(db: DbClient, resolveDatabasePath: () => string, sqlite: {
   sqlite.close();
 }
 
-main().catch((err) => {
-  console.error('[bootstrap-real] Failed:', err);
-  process.exit(1);
-});
+// Guarded like every jobs/*.ts CLI entry (isMainModule/runCli convention,
+// see jobs/_shared.ts) so this module can be safely imported for its
+// `runBootstrap` export (see tests/integration/wp-p1.test.ts's
+// roster-deactivation coverage) WITHOUT firing the real CLI flow --
+// unguarded, an import alone used to run main() as a side effect, which
+// would also close() the shared sqlite handle any other already-imported
+// module holds a reference to.
+if (isMainModule(import.meta.url)) {
+  main().catch((err) => {
+    console.error('[bootstrap-real] Failed:', err);
+    process.exit(1);
+  });
+}

@@ -196,3 +196,26 @@ summary:focus-visible,
     animation: none;
   }
 }
+
+/* "From Seattle" home board (WP-P2): thin, low-contrast scrollbar for the
+ * horizontally-scrollable per-group destination rows (components/home/
+ * HomeBoard.tsx) — terminal-appropriate rather than the browser default
+ * chunky bar, and only applied where a container actually needs to signal
+ * "more content this way" via scroll rather than wrapping/growing. */
+.home-board-hscroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.home-board-hscroll::-webkit-scrollbar {
+  height: 6px;
+}
+
+.home-board-hscroll::-webkit-scrollbar-thumb {
+  background-color: var(--border-strong);
+  border-radius: 3px;
+}
+
+.home-board-hscroll::-webkit-scrollbar-track {
+  background: transparent;
+}

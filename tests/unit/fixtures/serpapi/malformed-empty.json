@@ -1,0 +1,71 @@
+{
+  "search_metadata": {
+    "id": "fixture-malformed-empty",
+    "status": "Success",
+    "google_flights_url": "https://www.google.com/travel/flights?fixture=malformed-empty"
+  },
+  "search_parameters": {
+    "engine": "google_flights",
+    "departure_id": "SEA",
+    "arrival_id": "TUS",
+    "outbound_date": "2026-11-01",
+    "return_date": "2026-11-08",
+    "currency": "USD",
+    "type": "1"
+  },
+  "best_flights": [],
+  "other_flights": [
+    {
+      "flights": [
+        {
+          "departure_airport": { "name": "Seattle-Tacoma International Airport", "id": "SEA", "time": "2026-11-01 09:00" },
+          "arrival_airport": { "name": "Tucson International Airport", "id": "TUS", "time": "2026-11-01 12:30" },
+          "duration": 210,
+          "airline": "Alaska",
+          "travel_class": "Economy",
+          "flight_number": "AS 9001"
+        }
+      ],
+      "total_duration": 210,
+      "type": "Round trip",
+      "departure_token": "fixture-token-missing-price"
+    },
+    {
+      "flights": [
+        {
+          "departure_airport": { "name": "Seattle-Tacoma International Airport", "id": "SEA", "time": "2026-11-01 09:00" },
+          "arrival_airport": { "name": "Tucson International Airport", "time": "2026-11-01 12:30" },
+          "duration": 210,
+          "airline": "Alaska",
+          "travel_class": "Economy",
+          "flight_number": "AS 9002"
+        }
+      ],
+      "total_duration": 210,
+      "price": 512,
+      "type": "Round trip",
+      "departure_token": "fixture-token-missing-arrival-id"
+    },
+    {
+      "flights": [
+        {
+          "departure_airport": { "name": "Seattle-Tacoma International Airport", "id": "SEA", "time": "2026-11-01 09:00" },
+          "arrival_airport": { "name": "Tucson International Airport", "id": "TUS", "time": "2026-11-01 12:30" },
+          "duration": 210,
+          "airline": "Alaska",
+          "travel_class": "Economy"
+        }
+      ],
+      "total_duration": 210,
+      "price": 498,
+      "type": "Round trip",
+      "departure_token": "fixture-token-missing-flight-number"
+    },
+    {
+      "flights": [],
+      "price": 399,
+      "type": "Round trip",
+      "departure_token": "fixture-token-no-legs"
+    }
+  ]
+}

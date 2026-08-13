@@ -1,9 +1,10 @@
-// WP-F3: skeleton reshaped to match the new home page layout (Index hero,
-// Top movers, Deals ticker, Newly favorable, Unusual events, AI brief).
-// Uses the `.skeleton` shimmer class (app/globals.css) instead of Tailwind's
-// flat `animate-pulse`, per the WP-F3 motion inventory — respects
-// prefers-reduced-motion via the same blanket rule every other animation on
-// this page does (globals.css collapses animation-duration to ~0).
+// WP-F3 (extended by WP-P2): skeleton reshaped to match the home page
+// layout — From Seattle board, Index hero, Top movers, Deals ticker, Newly
+// favorable, Unusual events, AI brief. Uses the `.skeleton` shimmer class
+// (app/globals.css) instead of Tailwind's flat `animate-pulse`, per the
+// WP-F3 motion inventory — respects prefers-reduced-motion via the same
+// blanket rule every other animation on this page does (globals.css
+// collapses animation-duration to ~0).
 
 function SkeletonBlock({ className }: { className?: string }) {
   return <div className={`skeleton ${className ?? ''}`} />;
@@ -23,6 +24,33 @@ function SkeletonCard() {
   );
 }
 
+/** Compact card matching HomeBoard's HomeBoardCard footprint (w-44) rather
+ * than SkeletonCard's wider grid card — the board's rows are horizontally
+ * scrollable chip-cards, not a wrapping grid. */
+function SkeletonBoardCard() {
+  return (
+    <div className="flex w-44 shrink-0 flex-col gap-2 rounded-lg border border-[var(--border)] bg-[var(--panel)] p-3">
+      <SkeletonBlock className="h-4 w-10" />
+      <SkeletonBlock className="h-3 w-20" />
+      <SkeletonBlock className="h-6 w-24" />
+      <SkeletonBlock className="h-3 w-28" />
+    </div>
+  );
+}
+
+function SkeletonBoardRow() {
+  return (
+    <div className="flex flex-col gap-2">
+      <SkeletonBlock className="h-3 w-24" />
+      <div className="flex gap-3 overflow-hidden">
+        <SkeletonBoardCard />
+        <SkeletonBoardCard />
+        <SkeletonBoardCard />
+      </div>
+    </div>
+  );
+}
+
 export default function HomeLoading() {
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-8 px-4 py-6 sm:px-6 sm:py-8" aria-busy="true" aria-label="Loading market pulse">
@@ -31,6 +59,22 @@ export default function HomeLoading() {
         <SkeletonBlock className="h-6 w-44 sm:h-8 sm:w-56" />
         <SkeletonBlock className="h-4 w-full max-w-2xl" />
         <SkeletonBlock className="h-11 w-full rounded-lg" />
+      </div>
+
+      {/* From Seattle board */}
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <SkeletonBlock className="h-4 w-28" />
+            <SkeletonBlock className="h-5 w-12 rounded-full" />
+          </div>
+          <SkeletonBlock className="h-3 w-24" />
+        </div>
+        <div className="flex flex-col gap-5">
+          <SkeletonBoardRow />
+          <SkeletonBoardRow />
+          <SkeletonBoardRow />
+        </div>
       </div>
 
       {/* Index hero */}

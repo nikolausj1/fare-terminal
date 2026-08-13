@@ -12,6 +12,7 @@
     "db:setup": "tsx db/migrate.ts",
     "seed": "tsx db/seed/index.ts",
     "bootstrap:real": "tsx scripts/bootstrap-real.ts",
+    "bootstrap:serpapi": "tsx scripts/bootstrap-serpapi.ts",
     "pipeline": "tsx jobs/pipeline.ts",
     "ingest": "tsx jobs/ingest.ts",
     "test": "vitest run",

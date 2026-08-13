@@ -1,0 +1,49 @@
+{
+  "search_metadata": {
+    "id": "fixture-one-way-minimal",
+    "status": "Success"
+  },
+  "search_parameters": {
+    "engine": "google_flights",
+    "departure_id": "SEA",
+    "arrival_id": "PHX",
+    "outbound_date": "2026-10-05",
+    "currency": "USD",
+    "type": "2"
+  },
+  "best_flights": [
+    {
+      "flights": [
+        {
+          "departure_airport": {
+            "name": "Seattle-Tacoma International Airport",
+            "id": "SEA",
+            "time": "2026-10-05 07:20"
+          },
+          "arrival_airport": {
+            "name": "Phoenix Sky Harbor International Airport",
+            "id": "PHX",
+            "time": "2026-10-05 10:05"
+          },
+          "duration": 225,
+          "airplane": "Boeing 737",
+          "airline": "Alaska",
+          "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/AS.png",
+          "travel_class": "Economy",
+          "flight_number": "AS 1412",
+          "legroom": "31 in",
+          "extensions": [
+            "Average legroom (31 in)",
+            "Carbon emissions estimate: 210 kg"
+          ]
+        }
+      ],
+      "total_duration": 225,
+      "price": 149,
+      "type": "One way",
+      "airline_logo": "https://www.gstatic.com/flights/airline_logos/70px/AS.png",
+      "departure_token": "fixture-token-one-way-minimal"
+    }
+  ],
+  "other_flights": []
+}

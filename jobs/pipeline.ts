@@ -17,6 +17,7 @@ import { deriveAnalystNotes, type DeriveAnalystNotesSummary } from './analyst-no
 import { runBackfill, type BackfillSummary } from './backfill';
 import { runDealsSweep, type DealsSummary } from './deals';
 import { deriveEvents, type DeriveEventsSummary } from './events';
+import { refreshHomeBoard, type HomeBoardSummary } from './home-board';
 import { runHeatmapSweep, type HeatmapSummary } from './heatmap';
 import { deriveIndexSeries, type IndexSeriesSummary } from './index-series';
 import { deriveRecommendations, type DeriveRecommendationsSummary } from './recommendations';
@@ -46,9 +47,16 @@ export interface PipelineSummary {
     PipelineStageResult<DeriveAnalystNotesSummary>,
   ];
   /** WP-F2 extras stages — undefined (not run) whenever extrasEnabled() is
-   * false, e.g. every demo build/deploy. */
+   * false, e.g. every demo build/deploy. WP-P1 adds home-board as a 4th
+   * stage (1 unconditional request against config.homeBoard.origin — see
+   * jobs/home-board.ts). */
   extrasStages:
-    | [PipelineStageResult<HeatmapSummary>, PipelineStageResult<DealsSummary>, PipelineStageResult<RelatedSummary>]
+    | [
+        PipelineStageResult<HeatmapSummary>,
+        PipelineStageResult<DealsSummary>,
+        PipelineStageResult<RelatedSummary>,
+        PipelineStageResult<HomeBoardSummary>,
+      ]
     | undefined;
   indexSeriesStage: PipelineStageResult<IndexSeriesSummary>;
   /** Combined live-API request count across the extras stages this run —
@@ -82,16 +90,22 @@ export async function runFullPipeline(): Promise<PipelineSummary> {
     const heatmap = await timeStage('heatmap', () => runHeatmapSweep());
     const deals = await timeStage('deals', () => runDealsSweep());
     const related = await timeStage('related', () => runRelatedSweep());
-    extrasStages = [heatmap, deals, related];
-    extrasRequestsMade = heatmap.summary.requestsMade + deals.summary.requestsMade + related.summary.requestsMade;
+    const homeBoard = await timeStage('home-board', () => refreshHomeBoard());
+    extrasStages = [heatmap, deals, related, homeBoard];
+    extrasRequestsMade =
+      heatmap.summary.requestsMade +
+      deals.summary.requestsMade +
+      related.summary.requestsMade +
+      homeBoard.summary.requestsMade;
     console.log(
-      `[pipeline] WP-F2 extras budget this sweep: ${extrasRequestsMade} live request(s) ` +
-        `(heatmap ${heatmap.summary.requestsMade}, deals ${deals.summary.requestsMade}, related ${related.summary.requestsMade}) ` +
-        `across ${heatmap.summary.routesRefreshedThisSweep}/${heatmap.summary.routesInRoster} heatmap route(s) ` +
-        `and ${related.summary.originsRefreshedThisSweep}/${related.summary.originsInRoster} related-market origin(s).`
+      `[pipeline] WP-F2/WP-P1 extras budget this sweep: ${extrasRequestsMade} live request(s) ` +
+        `(heatmap ${heatmap.summary.requestsMade}, deals ${deals.summary.requestsMade}, related ${related.summary.requestsMade}, home-board ${homeBoard.summary.requestsMade}) ` +
+        `across ${heatmap.summary.routesRefreshedThisSweep}/${heatmap.summary.routesInRoster} heatmap route(s), ` +
+        `${related.summary.originsRefreshedThisSweep}/${related.summary.originsInRoster} related-market origin(s), ` +
+        `and the unconditional home-board sweep (${homeBoard.summary.destinationsObserved} destination(s) from ${homeBoard.summary.origin}).`
     );
   } else {
-    console.log('[pipeline] WP-F2 extras (heatmap/deals/related) skipped: not running with a live travelpayouts provider.');
+    console.log('[pipeline] WP-F2/WP-P1 extras (heatmap/deals/related/home-board) skipped: not running with a live travelpayouts provider.');
   }
 
   const indexSeriesStage = await timeStage('index-series', () => deriveIndexSeries());

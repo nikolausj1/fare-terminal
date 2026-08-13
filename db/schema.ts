@@ -363,3 +363,33 @@ export const indexValues = sqliteTable('index_values', {
   routeCount: integer('route_count').notNull(),
   methodologyVersion: text('methodology_version').notNull(),
 });
+
+/** WP-P1: append-only history of every destination fare /v1/city-directions
+ * has ever returned for the owner's home origin (config.homeBoard.origin,
+ * SEA) — one row per (origin, destination) observation PER SWEEP, never
+ * overwritten. This is the opposite refresh semantics from related_fares
+ * (which upsert-replaces "current price per pair" for the Related Markets
+ * feature): the home board needs a real time series per destination to
+ * drive sparklines/percentile/changePct7d, so jobs/home-board.ts appends a
+ * new row here on every sweep in addition to upserting related_fares (kept
+ * fresh for that separate feature). Rows are never pruned — this table is
+ * origin-scoped to one airport and stays small indefinitely.
+ *
+ * foundAt is the source's own cache-observation timestamp when
+ * city-directions provides one (it doesn't always — see extras.ts's
+ * mapCityDirections doc comment, no found_at field on this endpoint
+ * currently); observedAt is always this adapter's own sweep time and is
+ * what the (origin, destination, observed_at) index and read-layer
+ * ordering are keyed on. */
+export const cityDirectionHistory = sqliteTable(
+  'city_direction_history',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    origin: text('origin').notNull(),
+    destination: text('destination').notNull(),
+    priceMinor: integer('price_minor').notNull(),
+    observedAt: integer('observed_at').notNull(),
+    foundAt: integer('found_at'),
+  },
+  (table) => [index('city_direction_history_route_observed_idx').on(table.origin, table.destination, table.observedAt)]
+);

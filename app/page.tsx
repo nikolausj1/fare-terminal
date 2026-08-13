@@ -4,6 +4,7 @@ import { SeverityChip } from '@/components/ui/Badge';
 import { EmptyState, Panel } from '@/components/ui/Panel';
 import { SearchBox } from '@/components/search/SearchBox';
 import { MarketCard } from '@/components/market/MarketCard';
+import { HomeBoard } from '@/components/home/HomeBoard';
 import { IndexHero } from '@/components/home/IndexHero';
 import { TopMovers } from '@/components/home/TopMovers';
 import { DealsTicker } from '@/components/home/DealsTicker';
@@ -14,19 +15,26 @@ import { getIndexSeries, getIndexToday } from '@/lib/markets/index-series';
 import { getLatestDeals } from '@/lib/markets/deals';
 import { getTopMovers } from '@/lib/markets/movers';
 import { getSparklines } from '@/lib/markets/sparklines';
+import { getHomeBoard } from '@/lib/markets/home-board';
 
-// WP-F3: home page rebuilt from a mostly-static list into an "alive" market
-// terminal. Section order (Nav lives in app/layout.tsx, not here):
-//   hero title/search -> Index hero -> Top movers -> Deals ticker ->
-//   Newly favorable -> Unusual events -> AI brief -> (footer, in layout.tsx)
-// The AI brief moved from the top to just above the footer — it's secondary
-// context, not the reason to load the page. Every section below is
-// null-safe with an honest empty state (movers/ticker are additionally
-// designed to essentially never be empty on real data — see
-// lib/markets/movers.ts's doc comment for why the old "Biggest drops" gate
-// made that section empty far too often).
+// WP-F3 (extended by WP-P2): home page rebuilt from a mostly-static list
+// into an "alive" market terminal, then again into a personal fare terminal
+// with a fixed home airport (SEA). Section order (Nav lives in
+// app/layout.tsx, not here):
+//   hero title/search -> From Seattle board -> Index hero -> Top movers ->
+//   Deals ticker -> Newly favorable -> Unusual events -> AI brief ->
+//   (footer, in layout.tsx)
+// The "From Seattle" board (WP-P2) is now the FIRST content section — it's
+// what the owner actually wants to see first on their own terminal, ahead
+// of the network-wide index/movers/ticker sections. The AI brief stays
+// just above the footer — it's secondary context, not the reason to load
+// the page. Every section below is null-safe with an honest empty state
+// (movers/ticker are additionally designed to essentially never be empty on
+// real data — see lib/markets/movers.ts's doc comment for why the old
+// "Biggest drops" gate made that section empty far too often).
 export default function HomePage() {
   const pulse = getMarketPulse();
+  const board = getHomeBoard();
   const movers = getTopMovers(6);
   const indexToday = getIndexToday();
   const indexSeries = indexToday ? getIndexSeries(90) : [];
@@ -49,6 +57,8 @@ export default function HomePage() {
         </p>
         <SearchBox />
       </section>
+
+      <HomeBoard board={board} />
 
       {/* Null-safe: an index with zero data yet (e.g. a brand-new real-data
           deploy before the anchor-day coverage threshold is met) omits the

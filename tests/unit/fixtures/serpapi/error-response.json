@@ -1,0 +1,15 @@
+{
+  "search_metadata": {
+    "id": "fixture-error-response",
+    "status": "Error"
+  },
+  "search_parameters": {
+    "engine": "google_flights",
+    "departure_id": "SEA",
+    "arrival_id": "NCE",
+    "outbound_date": "2026-12-01",
+    "currency": "USD",
+    "type": "2"
+  },
+  "error": "Google hasn't returned any results for this query."
+}

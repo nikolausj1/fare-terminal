@@ -17,10 +17,32 @@
 
 import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 
 const databasePath = process.env.DATABASE_PATH ?? './data/fare-terminal.db';
 const forceReseed = process.env.SEED_ON_BUILD === '1';
-const dbMissing = !existsSync(databasePath);
+
+// "Present" must mean "actually usable", not "a file exists": test runs and
+// crashed processes can leave an EMPTY sqlite file at the demo path (2026-08-13
+// CI outage — the guard skipped seeding for a zero-table leftover and
+// `next build` prerendered against it). Probe for a required table instead.
+function dbUsable(p) {
+  if (!existsSync(p)) return false;
+  try {
+    const require = createRequire(import.meta.url);
+    const Database = require('better-sqlite3');
+    const probe = new Database(p, { readonly: true, fileMustExist: true });
+    const row = probe
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='search_runs'")
+      .get();
+    probe.close();
+    return row !== undefined;
+  } catch {
+    return false;
+  }
+}
+
+const dbMissing = !dbUsable(databasePath);
 
 function run(command, args, extraEnv = {}) {
   console.log(`[build] $ ${command} ${args.join(' ')}`);
